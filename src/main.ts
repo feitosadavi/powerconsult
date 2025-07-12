@@ -21,7 +21,9 @@ app.post("/simular", async (req, res) => {
       .status(400)
       .json(`bancos não reconhecidos: ${notRecognizedBanks.join(", ")}`);
 
-  const result = getSimulationsController({ bancos, cpf });
+  const result = await getSimulationsController({ bancos, cpf });
+  console.log({ result });
+
   res.json({ result });
 });
 

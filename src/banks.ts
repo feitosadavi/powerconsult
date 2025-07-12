@@ -1,13 +1,14 @@
+import { ServiceInput } from "./domain";
 import { bancopanService } from "./services";
 
 export type AvailableBanks = "bancopan";
 export const AvailableBanks: AvailableBanks[] = ["bancopan"];
-export type ServiceOutput = {};
+export type ServiceOutput = Record<AvailableBanks, any>;
 
 type Banks = {
   [key in AvailableBanks]: {
     baseUrl: string;
-    service: () => Promise<ServiceOutput>;
+    service: (input: ServiceInput) => Promise<ServiceOutput>;
     endpoints: {
       login: string;
     };

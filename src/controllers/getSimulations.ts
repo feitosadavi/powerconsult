@@ -4,11 +4,19 @@ export async function getSimulationsController({
   cpf,
   bancos,
 }: GetSimulationsController.Input) {
-  const res: ServiceOutput[] = [];
+  let res: any = {};
+  const errors = [];
   for (const banco of bancos) {
-    const output = await BANKS[banco].service();
-    res.push(output);
+    if (BANKS[banco]) {
+      try {
+        const output = await BANKS[banco].service({ cpf });
+        res = { ...res, ...output };
+      } catch (error) {
+        errors.push(error);
+      }
+    }
   }
+
   return res;
 }
 
