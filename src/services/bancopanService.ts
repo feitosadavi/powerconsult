@@ -1,9 +1,14 @@
-import { ServiceOutput } from "../banks";
-import { headers } from "../config";
+import { BANKS, ServiceOutput } from "../banks";
+import { generateHeaders } from "../config";
 import { ServiceInput } from "../domain";
 import { customFetch, logger } from "../lib";
 
 const BASE_URL = "https://ap-gateway-web.bancopan.com.br/prd/veiculos";
+const headers = generateHeaders({
+  Host: "ap-gateway-web.bancopan.com.br",
+  Origin: "https://veiculos.bancopan.com.br",
+  Referer: "https://veiculos.bancopan.com.br/",
+});
 
 export async function bancopanService({
   cpf,
@@ -20,7 +25,7 @@ export async function bancopanService({
 export async function getSimulation(token: any, cpf: string): Promise<{}> {
   logger("Getting simulations");
 
-  const data = await customFetch(
+  const data = await customFetch<any>(
     `https://ap-gateway-web.bancopan.com.br/prd/veiculos/simulacao/v3/simulacao/loja/122464/cliente/${cpf}`,
     {
       method: "GET",
@@ -59,17 +64,19 @@ async function login() {
   const payload = {
     grant_type: "password",
     response_type: "id_token",
-    username: "66956463172",
-    password: "Feroz2025*",
+    ...BANKS.bancopan.creds,
     persist: false,
     changePassword: false,
   };
 
-  const data = await customFetch(`${BASE_URL}/autenticacao/v3/v2/oauth/token`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
+  const data = await customFetch<any>(
+    `${BASE_URL}/autenticacao/v3/v2/oauth/token`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    }
+  );
 
   return data;
 }

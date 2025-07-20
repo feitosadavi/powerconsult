@@ -1,19 +1,18 @@
+// banks.ts
 import { ServiceInput } from "./domain";
-import { bancopanService } from "./services";
+import { bancopanService } from "./services/bancopanService";
+import { bradescoService } from "./services/bradescoService";
 
-export type AvailableBanks = "bancopan";
-export const AvailableBanks: AvailableBanks[] = ["bancopan"];
-export type ServiceOutput = Record<AvailableBanks, any>;
+export type AvailableBanks = "bancopan" | "bradesco";
+export const availableBanksList: AvailableBanks[] = ["bancopan", "bradesco"];
+
+export type ServiceOutput = Partial<Record<AvailableBanks, any>>;
 
 type Banks = {
   [key in AvailableBanks]: {
-    baseUrl: string;
     service: (input: ServiceInput) => Promise<ServiceOutput>;
-    endpoints: {
-      login: string;
-    };
     creds: {
-      user: string;
+      username: string;
       password: string;
     };
   };
@@ -21,14 +20,17 @@ type Banks = {
 
 export const BANKS: Banks = {
   bancopan: {
-    baseUrl: "https://veiculos.bancopan.com.br",
     service: bancopanService,
-    endpoints: {
-      login: "https://veiculos.bancopan.com.br/login",
-    },
     creds: {
-      user: "66956463172",
+      username: "66956463172",
       password: "Feroz2025*",
+    },
+  },
+  bradesco: {
+    service: bradescoService,
+    creds: {
+      username: "V1053.49893",
+      password: "Power25$",
     },
   },
 };

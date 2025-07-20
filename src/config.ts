@@ -1,5 +1,11 @@
-export const headers = {
-  Host: "ap-gateway-web.bancopan.com.br",
+type GenerateHeadersInput = {
+  Host: string;
+  Origin: string;
+  Referer: string;
+};
+
+export const generateHeaders = (input: GenerateHeadersInput) => ({
+  ...input,
   "User-Agent":
     "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
   Accept: "application/json, text/plain, */*",
@@ -9,8 +15,6 @@ export const headers = {
   canal: "GoPan FrontEnd",
   loja: "",
   "Content-Type": "application/json",
-  Origin: "https://veiculos.bancopan.com.br",
-  Referer: "https://veiculos.bancopan.com.br/",
   Connection: "keep-alive",
   "Sec-Fetch-Dest": "empty",
   "Sec-Fetch-Mode": "cors",
@@ -18,4 +22,4 @@ export const headers = {
   TE: "trailers",
   // ⚠️ Optional: Only include cookies if you have them and are authorized
   // "Cookie": "your_cookie_string_here"
-};
+});

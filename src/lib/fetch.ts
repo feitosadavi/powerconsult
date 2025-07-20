@@ -1,16 +1,36 @@
-export async function customFetch<T = any>(
+import fetch, { RequestInit } from "node-fetch";
+
+export async function customFetch<T>(
   url: string,
-  options: RequestInit
+  options: RequestInit & { timeout?: number } = {}
 ): Promise<T> {
-  console.log({ url });
+  const controller = new AbortController();
+  const timeout = options.timeout ?? 7000;
 
-  const response = await fetch(url, options);
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Request failed: ${response.status} - ${err}`);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal as any,
+    });
+
+    const contentType = response.headers.get("content-type");
+    const data = contentType?.includes("application/json")
+      ? await response.json()
+      : await response.text();
+
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status} - ${data}`);
+    }
+
+    return data as T;
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      throw new Error(`Timeout`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const data = await response.json();
-  return data;
 }

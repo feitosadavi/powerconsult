@@ -1,9 +1,6 @@
 import express, { json } from "express";
-import {
-  getSimulationsController,
-  GetSimulationsController,
-} from "./controllers";
-import { AvailableBanks } from "./banks";
+import { getSimulationsController } from "./controllers";
+import { availableBanksList } from "./banks";
 
 const app = express();
 app.use(json());
@@ -13,7 +10,7 @@ app.post("/simular", async (req, res) => {
   if (!(bancos && cpf)) res.status(400).json("bancos or cpf faltando");
 
   const notRecognizedBanks = (bancos as string[]).filter(
-    (banco: string) => banco in AvailableBanks
+    (banco: string) => banco in availableBanksList
   );
 
   if (notRecognizedBanks.length > 0)
@@ -22,7 +19,6 @@ app.post("/simular", async (req, res) => {
       .json(`bancos não reconhecidos: ${notRecognizedBanks.join(", ")}`);
 
   const result = await getSimulationsController({ bancos, cpf });
-  console.log({ result });
 
   res.json({ result });
 });

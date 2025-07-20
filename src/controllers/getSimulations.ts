@@ -1,18 +1,27 @@
-import { AvailableBanks, BANKS, ServiceOutput } from "../banks";
+import { AvailableBanks, BANKS } from "../banks";
 
 export async function getSimulationsController({
   cpf,
   bancos,
 }: GetSimulationsController.Input) {
   let res: any = {};
-  const errors = [];
   for (const banco of bancos) {
     if (BANKS[banco]) {
       try {
         const output = await BANKS[banco].service({ cpf });
         res = { ...res, ...output };
       } catch (error) {
-        errors.push(error);
+        console.log(error);
+
+        res = {
+          ...res,
+          [banco]: {
+            error:
+              (error as Error).message === "Timeout"
+                ? `O serviço do ${banco} está offline`
+                : error,
+          },
+        };
       }
     }
   }
