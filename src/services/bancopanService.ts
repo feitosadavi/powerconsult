@@ -1,6 +1,6 @@
-import { BANKS, ServiceOutput } from "../banks";
+import { BANKS } from "../banks";
 import { generateHeaders } from "../config";
-import { ServiceInput } from "../domain";
+import { SimulationInput, SimulationOutput } from "../domain";
 import { customFetch, logger } from "../lib";
 
 const BASE_URL = "https://ap-gateway-web.bancopan.com.br/prd/veiculos";
@@ -12,7 +12,7 @@ const headers = generateHeaders({
 
 export async function bancopanService({
   cpf,
-}: ServiceInput): Promise<ServiceOutput> {
+}: SimulationInput): Promise<SimulationOutput> {
   const token = await login();
 
   const simulations = await getSimulation(token.results.access_token, cpf);

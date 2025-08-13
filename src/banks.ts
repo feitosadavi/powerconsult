@@ -1,16 +1,12 @@
-// banks.ts
-import { ServiceInput } from "./domain";
-import { bancopanService } from "./services/bancopanService";
-import { bradescoService } from "./services/bradescoService";
-
-export type AvailableBanks = "bancopan" | "bradesco";
-export const availableBanksList: AvailableBanks[] = ["bancopan", "bradesco"];
-
-export type ServiceOutput = Partial<Record<AvailableBanks, any>>;
+import { AvailableBanks, SimulationInput, SimulationOutput } from "./domain";
+import { getItauSimulation, isItauAvailableForFinancig } from "./services";
 
 type Banks = {
   [key in AvailableBanks]: {
-    service: (input: ServiceInput) => Promise<ServiceOutput>;
+    isAvailableForFinancing: (
+      input: SimulationInput
+    ) => Promise<SimulationOutput>;
+    getSimulation: (input: SimulationInput) => Promise<SimulationOutput>;
     creds: {
       username: string;
       password: string;
@@ -20,14 +16,24 @@ type Banks = {
 
 export const BANKS: Banks = {
   bancopan: {
-    service: bancopanService,
+    getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
+    isAvailableForFinancing: (input: any) => Promise.resolve({ bancopan: {} }),
+    creds: {
+      username: "66956463172",
+      password: "Feroz2025*",
+    },
+  },
+  itau: {
+    getSimulation: getItauSimulation,
+    isAvailableForFinancing: isItauAvailableForFinancig,
     creds: {
       username: "66956463172",
       password: "Feroz2025*",
     },
   },
   bradesco: {
-    service: bradescoService,
+    getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
+    isAvailableForFinancing: (input: any) => Promise.resolve({ itau: {} }),
     creds: {
       username: "V1053.49893",
       password: "Power25$",

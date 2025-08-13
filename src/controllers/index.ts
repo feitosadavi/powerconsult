@@ -1,1 +1,1 @@
-export * from "./getSimulations";
+export * from "./getSimulations.controller";
