@@ -1,5 +1,6 @@
 import { BANKS } from "../banks";
 import { AvailableBanks } from "../domain";
+import { logger } from "../lib";
 
 export async function getSimulationsController({
   cpf,
@@ -15,6 +16,8 @@ export async function getSimulationsController({
       if (!BANKS[banco]) return {};
 
       try {
+        logger(`-> Starting [${methodName}] for ${banco}`);
+
         const output = await BANKS[banco][methodName]({ cpf });
         return output;
       } catch (error) {

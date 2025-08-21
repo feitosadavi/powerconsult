@@ -1,37 +1,40 @@
-// login-flow.js
-const crypto = require("crypto");
-const { setTimeout: sleep } = require("timers/promises");
-const { CookieJar } = require("tough-cookie");
-const fetch = require("node-fetch");
+import crypto from "crypto";
+import { setTimeout as sleep } from "timers/promises";
+import { CookieJar } from "tough-cookie";
+import fetch, { RequestInit, Response } from "node-fetch";
+import { BANKS } from "../../banks";
+import { logger } from "../../lib";
+import { redis } from "../../config/redis";
+import { ITAU_TOKEN } from "../../constants";
 
 // ---------- CONFIGURAÇÕES ----------
 const BASE_URL = "https://accounts-vehicle.itau.com.br";
 const REALM = "zflow";
 const CLIENT_ID = "credlineitau";
-
-// Pegue este valor do primeiro request da aplicação frontend (no DevTools)
 const REDIRECT_URI = "https://www.credlineitau.com.br/oidc/callback";
 
-// Suas credenciais de teste
-const USERNAME = "powerfulveiculosdf@gmail.com";
-const PASSWORD = "Mario2025#";
+// ---------- TIPOS ----------
+type HeadersInit = Record<string, string>;
 
 // ---------- HELPERS ----------
-function b64url(buf) {
+function b64url(buf: Buffer): string {
   return buf
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
 }
-function randomString(n = 64) {
+
+function randomString(n = 64): string {
   return b64url(crypto.randomBytes(n));
 }
-function pkce(verifier) {
+
+function pkce(verifier: string): string {
   const hash = crypto.createHash("sha256").update(verifier).digest();
   return b64url(hash);
 }
-function extractFormAction(html) {
+
+function extractFormAction(html: string): string | null {
   const match = html.match(
     /<form[^>]*id=["']kc-form-login["'][^>]*action=["']([^"']+)["']/i
   );
@@ -39,24 +42,53 @@ function extractFormAction(html) {
   const fallback = html.match(/<form[^>]*action=["']([^"']+)["']/i);
   return fallback ? fallback[1] : null;
 }
-async function fetchWithCookies(url, options, jar) {
-  const headers = { ...options.headers };
+
+async function fetchWithCookies(
+  url: string,
+  options: RequestInit,
+  jar: CookieJar
+): Promise<Response> {
+  const headers: HeadersInit = { ...(options.headers as HeadersInit) };
   const cookieStr = await jar.getCookieString(url);
   if (cookieStr) headers["cookie"] = cookieStr;
 
   const res = await fetch(url, { ...options, headers, redirect: "manual" });
-  const setCookieHeaders = res.headers.raw()["set-cookie"] || [];
+  const setCookieHeaders = (res.headers.raw()["set-cookie"] || []) as string[];
   for (const cookie of setCookieHeaders) {
     await jar.setCookie(cookie, url);
   }
   return res;
 }
-function abs(base, rel) {
+
+function abs(base: string, rel: string): string {
   return new URL(rel, base).toString();
 }
 
+// Variável para armazenar o token temporariamente
+let accessTokenGlobal: string | null = null;
+
+type GetAccessTokenOutput = {
+  clientId: string;
+  token: {
+    accessToken: string;
+    refreshToken: string;
+    refreshValidUntil: number;
+    validUntil: number;
+  };
+};
+
 // ---------- FLUXO ----------
-async function getAccessToken() {
+export async function getAccessToken(): Promise<GetAccessTokenOutput> {
+  logger("-> Getting itau accessToken");
+
+  // 0) Cache first
+  const cached = await redis.get(ITAU_TOKEN);
+  if (cached) {
+    logger("-> itau has cache token");
+    return JSON.parse(cached) as GetAccessTokenOutput;
+  }
+  logger("-> itau dont have cache token");
+
   const jar = new CookieJar();
   const state = randomString(24);
   const nonce = randomString(24);
@@ -84,17 +116,17 @@ async function getAccessToken() {
   }
 
   const html = await res.text();
-  console.log({ html });
   const formAction = extractFormAction(html);
   if (!formAction)
     throw new Error("Não foi possível extrair a action do formulário.");
 
   const loginAction = abs(authUrl, formAction);
-  console.log({ loginAction });
+
+  const { username, password } = BANKS.itau.creds;
 
   const form = new URLSearchParams({
-    username: USERNAME,
-    password: PASSWORD,
+    username,
+    password,
     credentialId: "",
   });
 
@@ -115,7 +147,7 @@ async function getAccessToken() {
   );
 
   // 3. Segue os redirects até pegar o código de autorização
-  let finalCode = null;
+  let finalCode: string | null = null;
   for (let i = 0; i < 10; i++) {
     const loc = res.headers.get("location");
     if (!loc) break;
@@ -132,8 +164,7 @@ async function getAccessToken() {
   }
 
   if (!finalCode) {
-    console.error("❌ Falha no login ou código de autorização não retornado.");
-    process.exit(1);
+    throw new Error("Falha no login ou código de autorização não retornado.");
   }
 
   // 4. Troca code por token
@@ -152,73 +183,28 @@ async function getAccessToken() {
     }
   );
 
-  const tokenJson = await tokenRes.json();
   if (!tokenRes.ok) {
-    console.error("❌ Erro na troca por token:", tokenJson);
-    process.exit(1);
+    throw new Error(`Erro na troca por token: ${JSON.stringify({})}`);
   }
+  const {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    refresh_expires_in: refreshExpiresIn,
+    expires_in: expiresIn,
+  } = await tokenRes.json();
 
-  console.log("✅ Login bem-sucedido!");
-  console.log(
-    "Access Token (início):",
-    tokenJson.access_token?.slice(0, 30) + "…"
-  );
-  // console.log("Expires in:", tokenJson.expires_in, "segundos");
-  // console.log("ID Token presente:", !!tokenJson.id_token);
-  return tokenJson.access_token;
+  const now = Date.now();
+  const refreshValidUntil = now + refreshExpiresIn * 1000;
+  const validUntil = now + expiresIn * 1000;
+
+  const output: GetAccessTokenOutput = {
+    clientId: CLIENT_ID,
+    token: { accessToken, refreshToken, refreshValidUntil, validUntil },
+  };
+
+  // 5) Cache with TTL
+  const ttlSeconds = Math.max(30, Math.floor(expiresIn * 0.9)); // 90% slack
+  await redis.set(ITAU_TOKEN, JSON.stringify(output), "EX", ttlSeconds);
+
+  return output;
 }
-
-getAccessToken()
-  .then(async (accessToken) => {
-    const apiUrl =
-      "https://apicd.cloud.itau.com.br/charon/brr13ot8/9fecca81a835b498";
-
-    const payload = {
-      sellerDocument: "45494125000153",
-      statusAnalysis: "RED",
-      segment: null,
-      dismissalCnhEnable: true,
-      clientDocument: "72048255191",
-      customer: false,
-    };
-
-    const apiHeaders = {
-      Host: "apicd.cloud.itau.com.br",
-      "User-Agent":
-        "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
-      Accept: "application/json, text/plain, */*",
-      "Accept-Language": "en-US,en;q=0.5",
-      "Accept-Encoding": "gzip, deflate, br, zstd",
-      Authorization: `Bearer ${accessToken}`,
-      "x-charon-session": "b80e3aa8-b175-4f16-a734-d4c97b6fef4f",
-      "x-itau-correlationID": "50445c95-cecc-44ba-99db-5ebefde6b12d",
-      "x-itau-flowID": "d1b3db54-2c1b-4d1d-a7ef-21964594a84b",
-      "Content-Type": "application/json",
-      // "x-itau-apikey":
-      // "bd0fb09f0179b8d899bd7be7404158bd0713462fc9bc1a88723de71e896de0e0501528201882cd5e7dc1fd9115725833",
-      // "x-apigw-api-id": "v0vb31ek5l",
-      Origin: "https://www.credlineitau.com.br",
-      Referer: "https://www.credlineitau.com.br/",
-      "Sec-Fetch-Dest": "empty",
-      "Sec-Fetch-Mode": "cors",
-      "Sec-Fetch-Site": "cross-site",
-      Priority: "u=0",
-      TE: "trailers",
-    };
-
-    const apiRes = await fetch(apiUrl, {
-      method: "POST",
-      headers: apiHeaders,
-      body: JSON.stringify(payload),
-    });
-
-    const apiResult = await apiRes.json().catch(() => ({}));
-
-    console.log("\n✅ Resposta da API:");
-    console.log("Status:", apiRes.status);
-    console.log("Body:", apiResult);
-  })
-  .catch((err) => {
-    console.error("Erro:", err);
-    process.exit(1);
-  });

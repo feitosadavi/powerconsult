@@ -27,8 +27,8 @@ export const BANKS: Banks = {
     getSimulation: getItauSimulation,
     isAvailableForFinancing: isItauAvailableForFinancig,
     creds: {
-      username: "66956463172",
-      password: "Feroz2025*",
+      username: "powerfulveiculosdf@gmail.com",
+      password: "Mario2025#",
     },
   },
   bradesco: {

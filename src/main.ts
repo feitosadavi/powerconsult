@@ -1,12 +1,17 @@
 import express, { json } from "express";
 import { getSimulationsController } from "./controllers";
 import { availableBanksList } from "./domain";
+import { logger } from "./lib";
+import { redis } from "./config/redis";
 
 const app = express();
 app.use(json());
 
 app.post("/availableBanks", async (req, res) => {
   const { bancos, cpf } = req.body;
+
+  logger(`-> /availableBanks {${cpf}}`);
+
   if (!(bancos && cpf)) res.status(400).json("bancos or cpf faltando");
 
   const notRecognizedBanks = (bancos as string[]).filter(
@@ -29,6 +34,9 @@ app.post("/availableBanks", async (req, res) => {
 
 app.post("/simular", async (req, res) => {
   const { bancos, cpf } = req.body;
+
+  logger(`-> /simular {${cpf}}`);
+
   if (!(bancos && cpf)) res.status(400).json("bancos or cpf faltando");
 
   const notRecognizedBanks = (bancos as string[]).filter(
@@ -45,6 +53,7 @@ app.post("/simular", async (req, res) => {
   res.json({ result });
 });
 
-app.listen(5000, () => {
+app.listen(5000, async () => {
+  await redis.connect().catch(() => {});
   console.log("Listening on http://localhost:5000");
 });

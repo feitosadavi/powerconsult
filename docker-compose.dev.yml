@@ -1,0 +1,65 @@
+version: "3.9"
+
+networks:
+  redis-network:
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - redis-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    networks:
+      - redis-network
+    depends_on:
+      - redis
+
+  app:
+    build:
+      context: .
+      target: dev
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      # Encaminha o display do host → container
+      DISPLAY: ${DISPLAY}
+      QT_X11_NO_MITSHM: "1"
+      # Se rodar como root dentro do container e o Chromium reclamar de sandbox:
+      # PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      # X11 socket do host
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # /dev/shm maior evita crash do Chrome
+      - /dev/shm:/dev/shm
+    # ou use apenas:
+    # shm_size: "1gb"
+    # Rode o container com seu usuário do host (evita problemas de permissão no X)
+    user: "${UID}:${GID}"
+    networks:
+      - redis-network
+    depends_on:
+      - redis
+    # (Opcional) Healthcheck do seu app HTTP
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+    #   interval: 10s
+    #   timeout: 3s
+    #   retries: 5
