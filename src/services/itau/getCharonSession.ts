@@ -11,6 +11,7 @@ type GetCharonSessionOutput = {
   preAnalysis?: any;
   preAnalysisUrl: string;
   getVehicleYearsUrl: string;
+  getVehicleSearchUrl: string;
 };
 
 export async function getCharonSession(
@@ -47,26 +48,33 @@ export async function getCharonSession(
   await page.locator("#continuar-button").click();
 
   // Coleta dados do sessionStorage como antes
-  const { charon, preAnalysisUrl, getVehicleYearsUrl } = await page.evaluate(
-    () => {
+  const { charon, preAnalysisUrl, getVehicleYearsUrl, getVehicleSearchUrl } =
+    await page.evaluate(() => {
       const charon = window.sessionStorage.getItem(
         "simulator_mfe_charon_session"
       );
       const cypressData = window.sessionStorage.getItem("cypressData");
       const functions = cypressData ? JSON.parse(cypressData) : [];
-      const [getVehicleYearsUrl, preAnalysisUrl] = functions
-        .filter((link: any) =>
-          ["getVehicleYears", "preAnalysis"].includes(link.rel)
-        )
-        .sort((a: any, b: any) => {
-          if (a.rel === "getVehicleYears") return -1;
-          if (b.rel === "getVehicleYears") return 1;
-          return 0;
-        })
-        .map((data: any) => data.href);
-      return { charon, preAnalysisUrl, getVehicleYearsUrl };
-    }
-  );
+      const [getVehicleYearsUrl, preAnalysisUrl, getVehicleSearchUrl] =
+        functions
+          .filter((link: any) =>
+            ["getVehicleYears", "preAnalysis", "getVehicleSearch"].includes(
+              link.rel
+            )
+          )
+          .sort((a: any, b: any) => {
+            if (a.rel === "getVehicleYears") return -1;
+            if (b.rel === "getVehicleYears") return 1;
+            return 0;
+          })
+          .map((data: any) => data.href);
+      return {
+        charon,
+        preAnalysisUrl,
+        getVehicleYearsUrl,
+        getVehicleSearchUrl,
+      };
+    });
 
   const vehicleYears = (await collector.getOrWait(getVehicleYearsUrl, 30000))
     .data;
@@ -77,6 +85,7 @@ export async function getCharonSession(
     charon: charon || "",
     preAnalysisUrl: preAnalysisUrl,
     getVehicleYearsUrl: getVehicleYearsUrl,
+    getVehicleSearchUrl,
     vehicleYears,
   };
 

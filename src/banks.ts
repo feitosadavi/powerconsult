@@ -1,12 +1,18 @@
 import { AvailableBanks, SimulationInput, SimulationOutput } from "./domain";
-import { getItauSimulation, isItauAvailableForFinancig } from "./services";
+import {
+  getItauSimulation,
+  isItauAvailableForFinancig,
+  listVehicles,
+} from "./services";
+
+export type ServiceName =
+  | "isAvailableForFinancing"
+  | "getSimulation"
+  | "listVehicles";
 
 type Banks = {
   [key in AvailableBanks]: {
-    isAvailableForFinancing: (
-      input: SimulationInput
-    ) => Promise<SimulationOutput>;
-    getSimulation: (input: SimulationInput) => Promise<SimulationOutput>;
+    services: Record<ServiceName, (...args: any) => any>;
     creds: {
       username: string;
       password: string;
@@ -16,24 +22,34 @@ type Banks = {
 
 export const BANKS: Banks = {
   bancopan: {
-    getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
-    isAvailableForFinancing: (input: any) => Promise.resolve({ bancopan: {} }),
+    services: {
+      getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
+      isAvailableForFinancing: (input: any) =>
+        Promise.resolve({ bancopan: {} }),
+      listVehicles: (input: any) => Promise.resolve({ bancopan: {} }),
+    },
     creds: {
       username: "66956463172",
       password: "Feroz2025*",
     },
   },
   itau: {
-    getSimulation: getItauSimulation,
-    isAvailableForFinancing: isItauAvailableForFinancig,
+    services: {
+      listVehicles,
+      getSimulation: getItauSimulation,
+      isAvailableForFinancing: isItauAvailableForFinancig,
+    },
     creds: {
       username: "powerfulveiculosdf@gmail.com",
       password: "Mario2025#",
     },
   },
   bradesco: {
-    getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
-    isAvailableForFinancing: (input: any) => Promise.resolve({ itau: {} }),
+    services: {
+      listVehicles: () => Promise.resolve({ bradesco: null }),
+      getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
+      isAvailableForFinancing: (input: any) => Promise.resolve({ itau: {} }),
+    },
     creds: {
       username: "V1053.49893",
       password: "Power25$",

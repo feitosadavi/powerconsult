@@ -25,8 +25,10 @@ app.post("/availableBanks", async (req, res) => {
 
   const result = await getSimulationsController({
     bancos,
-    cpf,
-    checkFinancingAvailability: true,
+    service: {
+      name: "isAvailableForFinancing",
+      input: { cpf },
+    },
   });
 
   res.json({ result });
@@ -48,8 +50,39 @@ app.post("/simular", async (req, res) => {
       .status(400)
       .json(`bancos não reconhecidos: ${notRecognizedBanks.join(", ")}`);
 
-  const result = await getSimulationsController({ bancos, cpf });
+  const result = await getSimulationsController({
+    bancos,
+    service: {
+      name: "getSimulation",
+      input: { cpf },
+    },
+  });
+  res.json({ result });
+});
 
+app.post("/listVehicles", async (req, res) => {
+  const { bancos, cpf } = req.body;
+
+  logger(`-> /listVehicles {${cpf}}`);
+
+  if (!(bancos && cpf)) res.status(400).json("bancos or cpf faltando");
+
+  const notRecognizedBanks = (bancos as string[]).filter(
+    (banco: string) => banco in availableBanksList
+  );
+
+  if (notRecognizedBanks.length > 0)
+    res
+      .status(400)
+      .json(`bancos não reconhecidos: ${notRecognizedBanks.join(", ")}`);
+
+  const result = await getSimulationsController({
+    bancos,
+    service: {
+      name: "listVehicles",
+      input: { cpf },
+    },
+  });
   res.json({ result });
 });
 

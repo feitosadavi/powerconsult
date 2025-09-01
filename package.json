@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/main.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "playground": "nodemon --exec ts-node src/playground.ts"
   },
   "keywords": [],
   "author": "",
@@ -15,18 +16,23 @@
     "express": "^5.1.0",
     "form-data": "^4.0.3",
     "ioredis": "^5.7.0",
+    "jsonwebtoken": "^9.0.2",
     "node-fetch": "^2.7.0",
     "node-forge": "^1.3.1",
     "patchright": "^1.52.5",
     "playwright": "^1.54.0",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "tough-cookie": "^5.1.2"
+    "tough-cookie": "^5.1.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.3.0",
     "@types/node-fetch": "2",
     "@types/node-forge": "^1.3.13",
+    "@types/ws": "^8.18.1",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"

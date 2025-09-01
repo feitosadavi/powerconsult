@@ -6,6 +6,7 @@ import { BANKS } from "../../banks";
 import { logger } from "../../lib";
 import { redis } from "../../config/redis";
 import { ITAU_TOKEN } from "../../constants";
+import { BankCreds } from "../../playground";
 
 // ---------- CONFIGURAÇÕES ----------
 const BASE_URL = "https://accounts-vehicle.itau.com.br";
@@ -67,7 +68,7 @@ function abs(base: string, rel: string): string {
 // Variável para armazenar o token temporariamente
 let accessTokenGlobal: string | null = null;
 
-type GetAccessTokenOutput = {
+export type GetAccessTokenOutput = {
   clientId: string;
   token: {
     accessToken: string;
@@ -78,7 +79,9 @@ type GetAccessTokenOutput = {
 };
 
 // ---------- FLUXO ----------
-export async function getAccessToken(): Promise<GetAccessTokenOutput> {
+export async function getAccessToken(
+  bankCreds: BankCreds
+): Promise<GetAccessTokenOutput> {
   logger("-> Getting itau accessToken");
 
   // 0) Cache first
@@ -122,7 +125,7 @@ export async function getAccessToken(): Promise<GetAccessTokenOutput> {
 
   const loginAction = abs(authUrl, formAction);
 
-  const { username, password } = BANKS.itau.creds;
+  const { username, password } = bankCreds;
 
   const form = new URLSearchParams({
     username,
