@@ -19,35 +19,106 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-type Option = {
-  value: string;
-  label: string;
-};
-
 interface Props {
   label: string;
-  searchHandler<T>(query: string): Promise<T>;
+  searchHandler(query: string): Promise<any>;
   type: "veiculo";
+  choosenVehicles: string[];
+  setChoosenVehicles: React.Dispatch<React.SetStateAction<string[]>>;
+}
+import Image from "next/image";
+
+function insertIcons(
+  items: string[],
+  iconsMap: Record<string, string>
+): { label: React.ReactNode; value: string }[] {
+  return items.map((item) => {
+    const match = item.match(/\{([^}]+)\}\s*$/);
+    if (!match) {
+      return { label: item.trim(), value: item };
+    }
+
+    const inside = match[1];
+    const banks = inside
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const labelBase = item.replace(/\s*\{[^}]*\}\s*$/, "").trim();
+
+    const icons = banks.map((b) =>
+      iconsMap[b] ? (
+        <Image
+          key={b}
+          src={iconsMap[b]}
+          width={30}
+          height={30}
+          alt={b}
+          style={{
+            display: "inline-block",
+            verticalAlign: "middle",
+            marginLeft: 4,
+          }}
+        />
+      ) : (
+        b
+      )
+    );
+
+    const labelWithIcons = (
+      <span>
+        {labelBase}
+        {icons.length > 0 && (
+          <span style={{ marginLeft: 8 }}>
+            {icons.map((icon, idx) => (
+              <React.Fragment key={idx}>{icon}</React.Fragment>
+            ))}
+          </span>
+        )}
+      </span>
+    );
+    return { label: labelWithIcons, value: item };
+  });
 }
 
-export const Combobox: React.FC<Props> = ({ label, searchHandler, type }) => {
+export const Combobox: React.FC<Props> = ({
+  label,
+  searchHandler,
+  type,
+  choosenVehicles,
+  setChoosenVehicles,
+}) => {
   const [open, setOpen] = React.useState(false);
-  const [value, setValue] = React.useState("");
-  const [options, setOptions] = React.useState([""]);
+  const [options, setOptions] = React.useState<
+    { label: React.ReactNode; value: string }[]
+  >([]);
+  const [query, setQuery] = React.useState<string | undefined>();
 
-  const [query, setQuery] = React.useState("");
+  const toggleValue = React.useCallback((currentValue: string) => {
+    setChoosenVehicles((prev) => {
+      // if present, remove immutably; otherwise add immutably
+      if (prev.includes(currentValue))
+        return prev.filter((v) => v !== currentValue);
+      return [...prev, currentValue];
+    });
+  }, []);
 
   React.useEffect(() => {
+    if (!query) return;
+    //   // isFirstRender.current = false;
+    //   setOptions([]);
+    //   return;
+    // }
+
     const handler = setTimeout(async () => {
       const res = (await searchHandler(query)) as any;
-      if (type === "veiculo") {
-        Object.keys(res).map((res) => {});
-        const reducedArr = res.reduce((acc: any, curr: any) => {
-          if (!acc.includes(curr)) acc.push(curr);
-          return acc;
-        }, []);
 
-        setOptions(res.map((value) => {}));
+      if (type === "veiculo") {
+        const _options = insertIcons(res as string[], {
+          itau: "/itau-logo.png",
+          bancopan: "/bancopan-logo.svg",
+        });
+        setOptions(_options);
       }
     }, 500);
 
@@ -63,8 +134,11 @@ export const Combobox: React.FC<Props> = ({ label, searchHandler, type }) => {
           aria-expanded={open}
           className="w-full justify-between"
         >
-          {value
-            ? options.find((option) => option.value === value)?.label
+          {choosenVehicles.length > 0
+            ? choosenVehicles
+                ?.join(", ")
+                .replace(/{[^}]*}/g, "")
+                .trim()
             : label}
           <ChevronsUpDown className="opacity-50" />
         </Button>
@@ -83,16 +157,15 @@ export const Combobox: React.FC<Props> = ({ label, searchHandler, type }) => {
                 <CommandItem
                   key={option.value}
                   value={option.value}
-                  onSelect={(currentValue) => {
-                    setValue(currentValue === value ? "" : currentValue);
-                    setOpen(false);
-                  }}
+                  onSelect={toggleValue}
                 >
                   {option.label}
                   <Check
                     className={cn(
                       "ml-auto",
-                      value === option.value ? "opacity-100" : "opacity-0"
+                      choosenVehicles.includes(option.value)
+                        ? "opacity-100"
+                        : "opacity-0"
                     )}
                   />
                 </CommandItem>

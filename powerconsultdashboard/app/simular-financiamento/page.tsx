@@ -108,9 +108,11 @@ export default function ChatFinancingPage() {
       condicao: "usado",
     },
   });
-  const [vehicleOptions, setVehicleOptions] = useState<VehicleOptions>(
+  const [vehicleOptions, setVehicleOptions] = React.useState<VehicleOptions>(
     {} as VehicleOptions
   );
+  const [choosenVehicles, setChoosenVehicles] = React.useState<string[]>([]);
+
   const [loading, setLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -132,41 +134,40 @@ export default function ChatFinancingPage() {
   );
 
   const connectWs = useCallback(() => {
-    if (
-      wsRef.current &&
-      (wsRef.current.readyState === WebSocket.OPEN ||
-        wsRef.current.readyState === WebSocket.CONNECTING)
-    )
-      return;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-    setWsReady(false);
-
-    ws.onopen = () => {
-      setWsReady(true);
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data) as WsReply;
-        if (msg.event === "ready") {
-          console.error("ws error");
-        } else if (msg.event === "reply") {
-          const { reqId, ok, payload } = msg.payload || {};
-          if (reqId && pending.current.has(reqId)) {
-            const res = pending.current.get(reqId)!;
-            pending.current.delete(reqId);
-            res(ok, payload);
-          }
-        } else if (msg.event === "error") {
-          console.error("ws error");
-        }
-      } catch {}
-    };
-    ws.onclose = () => {
-      setWsReady(false);
-      setTimeout(connectWs, 2000);
-    };
-    ws.onerror = () => {};
+    // if (
+    //   wsRef.current &&
+    //   (wsRef.current.readyState === WebSocket.OPEN ||
+    //     wsRef.current.readyState === WebSocket.CONNECTING)
+    // )
+    //   return;
+    // const ws = new WebSocket(wsUrl);
+    // wsRef.current = ws;
+    // setWsReady(false);
+    // ws.onopen = () => {
+    //   setWsReady(true);
+    // };
+    // ws.onmessage = (ev) => {
+    //   try {
+    //     const msg = JSON.parse(ev.data) as WsReply;
+    //     if (msg.event === "ready") {
+    //       console.error("ws error");
+    //     } else if (msg.event === "reply") {
+    //       const { reqId, ok, payload } = msg.payload || {};
+    //       if (reqId && pending.current.has(reqId)) {
+    //         const res = pending.current.get(reqId)!;
+    //         pending.current.delete(reqId);
+    //         res(ok, payload);
+    //       }
+    //     } else if (msg.event === "error") {
+    //       console.error("ws error");
+    //     }
+    //   } catch {}
+    // };
+    // ws.onclose = () => {
+    //   setWsReady(false);
+    //   setTimeout(connectWs, 2000);
+    // };
+    // ws.onerror = () => {};
   }, [wsUrl]);
 
   useEffect(() => {
@@ -204,18 +205,6 @@ export default function ChatFinancingPage() {
 
   // “isAvailableForFinancing” (via WS: abre página, digita CPF, clica continuar)
 
-  const changeInputPicker = <T = ItauFields,>(bankName: AvailableBanks) => {
-    return (field: T, value: any) => {
-      setBanks((bank) => ({
-        ...banks,
-        [bankName]: {
-          ...bank[bankName],
-          [field as string]: value,
-        },
-      }));
-    };
-  };
-
   const headerRight = useMemo(() => {
     const wsBadge = wsReady ? (
       <span className="text-xs p-2 rounded-full bg-emerald-100 text-emerald-700"></span>
@@ -229,10 +218,6 @@ export default function ChatFinancingPage() {
       </div>
     );
   }, [wsReady]);
-
-  useEffect(() => {
-    console.log({ vehicleOptions });
-  }, [vehicleOptions]);
 
   const handleCpfSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return;
@@ -266,45 +251,12 @@ export default function ChatFinancingPage() {
 
       setLoading(false);
     }, 2000);
-
-    // opcional: se seu componente pode desmontar, limpe o timer
-    // return () => clearTimeout(t);  // se estiver dentro de um useEffect
   };
 
-  useEffect(() => {
-    // <Spinner />
-    console.log({ banks });
-  }, [banks]);
-
-  const renderOrNull = (
-    bankName: AvailableBanks,
-    Component: React.ComponentType<any>
-  ): ReactElement | null => {
-    if (!vehicleOptions[bankName]?.financing) return null;
-
-    return (
-      <Component
-        availableYears={vehicleOptions[bankName].years}
-        changeInputHandler={changeInputPicker<any>(bankName)} // tipagem dinâmica
-        banks={banks}
-      />
-    );
-  };
-
-  const override: CSSProperties = {
-    display: "block",
-    margin: "0 auto",
-    borderColor: "red",
-  };
-  const renderTabs: Record<AvailableBanks | "semtab" | "loading", ReactNode> = {
-    itau: renderOrNull("itau", ItauForm),
-    bancopan: renderOrNull("bancopan", BancoPanForm),
-    semtab: <div>Digite o CPF acima e pressione Enter</div>,
-    loading: (
-      <div className="flex items-center justify-center z-50 w-full h-full ">
-        <RingLoader />
-      </div>
-    ),
+  const handleVehicleSearch = async (query: string): Promise<string[]> => {
+    const res = await sendWs("searchVehicles", { query });
+    console.log(res);
+    return res;
   };
 
   return (
@@ -323,34 +275,19 @@ export default function ChatFinancingPage() {
         </div>
       </header>
 
-      {/* MENU HORIZONTAL */}
-      <nav className="border-b bg-white">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex justify-center gap-2 overflow-x-auto no-scrollbar px-4 py-2">
-            {Object.keys(vehicleOptions).map((k) => (
-              <button
-                key={k}
-                onClick={() => setTab(k)}
-                className={`shrink-0 px-4 py-2 cursor-pointer rounded-full border text-sm font-medium transition
-                ${
-                  tab === k
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-neutral-700 hover:bg-neutral-100 border-neutral-300"
-                }`}
-                aria-pressed={tab === k}
-              >
-                {k.toUpperCase()}
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
-
       <main className="flex-1">
         <div className="max-w-3xl mx-auto px-4">
           <div className="min-h-[60vh] grid place-items-center py-10">
-            {renderTabs[tab]}
-            {/* {tab === "bancopan" && <BancoPanForm setBanks={setBanks} banks={banks}/>} */}
+            {loading ? (
+              <RingLoader />
+            ) : (
+              <Form
+                setChoosenVehicles={setChoosenVehicles}
+                choosenVehicles={choosenVehicles}
+                handleVehicleSearch={handleVehicleSearch}
+                availableYears={vehicleOptions.itau?.years || []}
+              />
+            )}
           </div>
         </div>
       </main>
@@ -358,106 +295,17 @@ export default function ChatFinancingPage() {
   );
 }
 
-interface BancoProps {
-  changeInputHandler: (fields: BancoPanFields, value: any) => void;
-  banks: BanksData;
-  availableYears: string[];
-}
-const BancoPanForm: React.FC<BancoProps> = ({
-  changeInputHandler,
-  availableYears,
-  banks,
-}) => {
-  return (
-    <div className="w-full text-center">
-      <div className="inline-block rounded-2xl border px-8 py-10 bg-white shadow-sm w-full max-w-md text-left">
-        <h2 className="text-xl font-semibold mb-6">BancoPan</h2>
-
-        {/* Condição */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-neutral-700 mb-2">
-            Condição do veículo
-          </label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="condicao"
-                value="usado"
-                checked={banks.itau.condicao === "usado"}
-                onChange={() => changeInputHandler("condicao", "usado")}
-              />
-              Usado
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="condicao"
-                value="Novo"
-                checked={banks.itau.condicao === "novo"}
-                onChange={() => changeInputHandler("condicao", "novo")}
-              />
-              0 km
-            </label>
-          </div>
-        </div>
-
-        <div className="mb-4 w-full">
-          <Select onValueChange={() => changeInputHandler("condicao", "")}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Ano" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableYears.map((year) => (
-                <SelectItem key={year} value={year}>
-                  {year}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Modelo */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-neutral-700 mb-1">
-            Marca, modelo e versão
-          </label>
-          <input
-            type="text"
-            placeholder="Ex: Fiat Argo 1.3"
-            onChange={(e) => setModelo(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
-          />
-        </div>
-
-        {/* Valor */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-neutral-700 mb-1">
-            Valor do veículo
-          </label>
-          <input
-            type="number"
-            placeholder="R$ 0,00"
-            // value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
-          />
-        </div>
-        <Button>Próximo</Button>
-      </div>
-    </div>
-  );
-};
-
 interface ItauProps {
-  changeInputHandler: (fields: ItauFields, value: any) => void;
-  banks: BanksData;
+  handleVehicleSearch: (query: string) => Promise<string[]>;
   availableYears: string[];
+  choosenVehicles: string[];
+  setChoosenVehicles: React.Dispatch<React.SetStateAction<string[]>>;
 }
-const ItauForm: React.FC<ItauProps> = ({
-  changeInputHandler,
+const Form: React.FC<ItauProps> = ({
   availableYears,
-  banks,
+  choosenVehicles,
+  setChoosenVehicles,
+  handleVehicleSearch,
 }) => {
   return (
     <div className="w-full text-center">
@@ -466,10 +314,10 @@ const ItauForm: React.FC<ItauProps> = ({
 
         {/* Condição */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-neutral-700 mb-2">
+          {/* <label className="block text-sm font-medium text-neutral-700 mb-2">
             Condição do veículo
-          </label>
-          <div className="flex gap-4">
+          </label> */}
+          {/* <div className="flex gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
@@ -491,57 +339,20 @@ const ItauForm: React.FC<ItauProps> = ({
               0 km
             </label>
           </div>
-        </div>
+        </div> */}
 
-        <div className="mb-4 w-full">
-          <Combobox
-            label="Veículo"
-            options={[{ value: "Fiat", label: "Fiat" }]}
-          />
-        </div>
+          <div className="mb-4 w-full">
+            <Combobox
+              label="Veículo"
+              type="veiculo"
+              searchHandler={handleVehicleSearch}
+              choosenVehicles={choosenVehicles}
+              setChoosenVehicles={setChoosenVehicles}
+            />
+          </div>
 
-        <div className="mb-4 w-full">
-          <Select onValueChange={() => changeInputHandler("condicao", "")}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Ano" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableYears.map((year) => (
-                <SelectItem key={year} value={year}>
-                  {year}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Button>Próximo</Button>
         </div>
-
-        {/* Modelo */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-neutral-700 mb-1">
-            Marca, modelo e versão
-          </label>
-          <input
-            type="text"
-            placeholder="Ex: Fiat Argo 1.3"
-            onChange={(e) => setModelo(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
-          />
-        </div>
-
-        {/* Valor */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-neutral-700 mb-1">
-            Valor do veículo
-          </label>
-          <input
-            type="number"
-            placeholder="R$ 0,00"
-            // value={valor}
-            onChange={(e) => setValor(e.target.value)}
-            className="w-full border rounded-md px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
-          />
-        </div>
-        <Button>Próximo</Button>
       </div>
     </div>
   );
