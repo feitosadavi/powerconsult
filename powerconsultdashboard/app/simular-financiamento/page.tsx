@@ -121,7 +121,7 @@ export default function ChatFinancingPage() {
   const wsUrl = useMemo(
     () =>
       process.env.NEXT_PUBLIC_WS_URL ||
-      `ws://localhost:8080?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJpZDAxIiwic3RvcmVJZCI6InN0b3JlLTAwMSIsImlhdCI6MTc1NjY3NDY1NSwiZXhwIjoxNzU2NzAzNDU1fQ.8_C5BIZga2-b9_YD9dmjTB-7uyFgud8TBLv1cdnKwrc`,
+      `ws://localhost:5000?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJpZDAxIiwic3RvcmVJZCI6InN0b3JlLTAwMSIsImlhdCI6MTc1NjY3NDY1NSwiZXhwIjoxNzU2NzAzNDU1fQ.8_C5BIZga2-b9_YD9dmjTB-7uyFgud8TBLv1cdnKwrc`,
     []
   );
   const wsSeq = useRef(0);
@@ -134,40 +134,40 @@ export default function ChatFinancingPage() {
   );
 
   const connectWs = useCallback(() => {
-    // if (
-    //   wsRef.current &&
-    //   (wsRef.current.readyState === WebSocket.OPEN ||
-    //     wsRef.current.readyState === WebSocket.CONNECTING)
-    // )
-    //   return;
-    // const ws = new WebSocket(wsUrl);
-    // wsRef.current = ws;
-    // setWsReady(false);
-    // ws.onopen = () => {
-    //   setWsReady(true);
-    // };
-    // ws.onmessage = (ev) => {
-    //   try {
-    //     const msg = JSON.parse(ev.data) as WsReply;
-    //     if (msg.event === "ready") {
-    //       console.error("ws error");
-    //     } else if (msg.event === "reply") {
-    //       const { reqId, ok, payload } = msg.payload || {};
-    //       if (reqId && pending.current.has(reqId)) {
-    //         const res = pending.current.get(reqId)!;
-    //         pending.current.delete(reqId);
-    //         res(ok, payload);
-    //       }
-    //     } else if (msg.event === "error") {
-    //       console.error("ws error");
-    //     }
-    //   } catch {}
-    // };
-    // ws.onclose = () => {
-    //   setWsReady(false);
-    //   setTimeout(connectWs, 2000);
-    // };
-    // ws.onerror = () => {};
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING)
+    )
+      return;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    setWsReady(false);
+    ws.onopen = () => {
+      setWsReady(true);
+    };
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data) as WsReply;
+        if (msg.event === "ready") {
+          console.error("ws error");
+        } else if (msg.event === "reply") {
+          const { reqId, ok, payload } = msg.payload || {};
+          if (reqId && pending.current.has(reqId)) {
+            const res = pending.current.get(reqId)!;
+            pending.current.delete(reqId);
+            res(ok, payload);
+          }
+        } else if (msg.event === "error") {
+          console.error("ws error");
+        }
+      } catch {}
+    };
+    ws.onclose = () => {
+      setWsReady(false);
+      setTimeout(connectWs, 2000);
+    };
+    ws.onerror = () => {};
   }, [wsUrl]);
 
   useEffect(() => {

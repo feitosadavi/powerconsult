@@ -1,14 +1,15 @@
-import { AvailableBanks, SimulationInput, SimulationOutput } from "./domain";
+import { AvailableBanks } from "./domain";
 import {
   getItauSimulation,
   isItauAvailableForFinancig,
-  listVehicles,
+  getBancopanVehicleOptions,
+  getItauVehicleOptions,
 } from "./services";
 
 export type ServiceName =
   | "isAvailableForFinancing"
   | "getSimulation"
-  | "listVehicles";
+  | "getVehicleOptions";
 
 type Banks = {
   [key in AvailableBanks]: {
@@ -26,7 +27,7 @@ export const BANKS: Banks = {
       getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
       isAvailableForFinancing: (input: any) =>
         Promise.resolve({ bancopan: {} }),
-      listVehicles: (input: any) => Promise.resolve({ bancopan: {} }),
+      getVehicleOptions: getBancopanVehicleOptions,
     },
     creds: {
       username: "66956463172",
@@ -35,7 +36,7 @@ export const BANKS: Banks = {
   },
   itau: {
     services: {
-      listVehicles,
+      getVehicleOptions: getItauVehicleOptions,
       getSimulation: getItauSimulation,
       isAvailableForFinancing: isItauAvailableForFinancig,
     },
@@ -46,7 +47,7 @@ export const BANKS: Banks = {
   },
   bradesco: {
     services: {
-      listVehicles: () => Promise.resolve({ bradesco: null }),
+      getVehicleOptions: () => Promise.resolve({ bradesco: null }),
       getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
       isAvailableForFinancing: (input: any) => Promise.resolve({ itau: {} }),
     },

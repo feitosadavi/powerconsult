@@ -1,0 +1,1 @@
+export {default as getBancopanVehicleOptions} from './getBancopanVehicleOptions.service'

@@ -15,7 +15,7 @@ import Redis from "ioredis";
 // -----------------------------
 const PORT = parseInt(process.env.PORT || "5000", 10);
 const MAX_CLIENTS = parseInt(process.env.MAX_CLIENTS || "200", 10);
-const HEADLESS = false;
+const HEADLESS = true;
 const CLIENT_IDLE_MS = parseInt(
   process.env.CLIENT_IDLE_MS || `${5 * 60_000}`,
   10
@@ -107,7 +107,7 @@ type JwtPayload = {
   exp?: number;
 };
 
-type OpName = "isAvailableForFinancing" | "close";
+type OpName = "isAvailableForFinancing" | "getVehicleOptions" | "close";
 
 type ClientMsg = { op: OpName; reqId?: string; args?: Record<string, unknown> };
 
@@ -141,8 +141,9 @@ class AsyncQueue {
 import { getSimulationsController } from "./controllers"; // você já tem
 import { AvailableBanks } from "./domain";
 import { getAccessToken, GetAccessTokenOutput } from "./services/itau/auth";
-import { ITAU_TOKEN } from "./constants";
+import { BANCOPAN_TOKEN, ITAU_TOKEN } from "./constants";
 import { logger } from "./lib";
+import { getVehicleOptionsController } from "./controllers/getVehiclesOptions.controller";
 
 // -----------------------------
 // Sessão por cliente
@@ -203,6 +204,11 @@ class ClientSession {
     const itauAccessToken = await getAccessToken(creds.itau);
     await redis.set(
       `${ITAU_TOKEN}:${this.user.storeId}`,
+      JSON.stringify(itauAccessToken)
+    );
+    // bancopan
+    await redis.set(
+      `${BANCOPAN_TOKEN}:${this.user.storeId}`,
       JSON.stringify(itauAccessToken)
     );
     return itauAccessToken;
@@ -272,6 +278,22 @@ class ClientSession {
     });
   }
 
+  private async cmdGetVehicleOptions(args?: Record<string, unknown>) {
+    logger(`-> cmdGetVehicleOptions`, this.user);
+    const cpf = String(args?.cpf ?? "");
+    const bancos: AvailableBanks[] = (args?.bancos as AvailableBanks[]) || [];
+
+    return await getVehicleOptionsController({
+      user: this.user,
+      bancos: bancos as AvailableBanks[],
+      browserContext: this.context,
+      service: {
+        name: "getVehicleOptions",
+        input: { cpf },
+      },
+    });
+  }
+
   async close() {
     if (this.closed) return;
     this.closed = true;
@@ -308,6 +330,8 @@ class ClientSession {
                 reqId,
                 await this.cmdIsAvailableForFinancing(args)
               );
+            case "getVehicleOptions":
+              return this.replyOk(reqId, await this.cmdGetVehicleOptions(args));
             case "close":
               await this.close();
               return this.replyOk(reqId, { closed: true });
@@ -380,12 +404,13 @@ function parseTokenFromRequest(req: any): string | null {
 
 function verifyJwt(token: string): UserSession {
   try {
+    console.log({ JWT_SECRET });
+
     const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
     if (!payload.userId || !payload.storeId) throw new Error("invalid payload");
     return { userId: payload.userId, storeId: payload.storeId };
   } catch (e) {
     console.log(e);
-
     throw new Error("invalid_token");
   }
 }
@@ -408,6 +433,10 @@ function currentLoad() {
   console.log(`[server] listening on ws://0.0.0.0:${PORT}`);
 
   wss.on("connection", async (ws, req) => {
+    console.log(
+      `[server] new ws connection from ${req.socket.remoteAddress ?? "unknown"}`
+    );
+
     // Autenticação obrigatória
     const token = parseTokenFromRequest(req);
     if (!token) {
