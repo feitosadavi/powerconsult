@@ -52,6 +52,8 @@ app.post("/simular", async (req, res) => {
 
   const result = await getSimulationsController({
     bancos,
+    user: this?.user,
+    browserContext: this.browserContext,
     service: {
       name: "getSimulation",
       input: { cpf },

@@ -35,8 +35,6 @@ const redis = new Redis(REDIS_URL);
 // Mock DB de credenciais por loja
 // Estrutura persistida no Redis: key = bankCreds:<storeId>, value = JSON.stringify({ banco: {username,password}, ... })
 // -----------------------------
-export type BankCreds = { username: string; password: string };
-export type StoreBankCreds = { [bankName: string]: BankCreds };
 
 const MOCK_CREDENTIALS_DB: Array<{ storeId: string; banks: StoreBankCreds }> = [
   {
@@ -139,11 +137,12 @@ class AsyncQueue {
 // Controllers (placeholder)
 // -----------------------------
 import { getSimulationsController } from "./controllers"; // você já tem
-import { AvailableBanks } from "./domain";
+import { AvailableBanks, LocalStorageToken } from "./domain";
 import { getAccessToken, GetAccessTokenOutput } from "./services/itau/auth";
 import { BANCOPAN_TOKEN, ITAU_TOKEN } from "./constants";
 import { logger } from "./lib";
 import { getVehicleOptionsController } from "./controllers/getVehiclesOptions.controller";
+import { BANKS, StoreBankCreds } from "./banks";
 
 // -----------------------------
 // Sessão por cliente
@@ -196,50 +195,46 @@ class ClientSession {
     }, CLIENT_IDLE_MS + 500);
   }
 
-  async setupAuth() {
+  async configBanks(): Promise<LocalStorageToken[]> {
     const creds = await getBankCredsForStore(this.user.storeId);
 
     if (!creds) throw new Error("Creds not found");
 
-    const itauAccessToken = await getAccessToken(creds.itau);
-    await redis.set(
-      `${ITAU_TOKEN}:${this.user.storeId}`,
-      JSON.stringify(itauAccessToken)
-    );
-    // bancopan
+    const tokens: LocalStorageToken[] = [];
+
+    Object.keys(creds).forEach((bank) => {
+      logger(`-> setup bank creds for ${bank}`);
+      const token = BANKS[bank as AvailableBanks].services.config(
+        creds[bank as AvailableBanks]!
+      );
+      tokens.push(token);
+    });
+
+    // remove later
     await redis.set(
       `${BANCOPAN_TOKEN}:${this.user.storeId}`,
-      JSON.stringify(itauAccessToken)
+      JSON.stringify({})
     );
-    return itauAccessToken;
+
+    return tokens;
   }
 
   async init() {
     this.context = await this.browser.newContext({
       viewport: { width: 1366, height: 768 },
     });
-    const itauAccessToken = await this.setupAuth();
+    const tokens = await this.configBanks();
 
-    await this.context.addInitScript(
-      (kv: {
-        key: string;
-        value: GetAccessTokenOutput;
-        origins?: string[];
-      }) => {
-        // optional origin guard (use if you open multiple sites in same context)
-        if (kv.origins && !kv.origins.includes(location.origin)) return;
-        window.sessionStorage.setItem(kv.key, JSON.stringify(kv.value));
-      },
-      {
-        key: "token",
-        value: itauAccessToken,
-        origins: ["https://www.credline.com.br"],
-      }
-    );
+    await this.context.addInitScript((tokens: LocalStorageToken[]) => {
+      tokens.forEach((token) => {
+        if (token.origins && !token.origins.includes(location.origin)) return;
+        window.sessionStorage.setItem(token.key, JSON.stringify(token.value));
+      });
+    }, tokens);
     this.page = await this.context.newPage();
     this.page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
     this.armIdleTimer();
-    await this.setupAuth();
+    // await this.setupAuth();
   }
 
   send(msg: ServerReply) {

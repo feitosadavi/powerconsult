@@ -5,7 +5,7 @@ import { CHARON_SESSION } from "../../constants";
 
 type Item = { manufacture: number; model: number; label: string };
 
-type GetCharonSessionOutput = {
+type SetupItauCookies = {
   charon: string;
   vehicleYears: any;
   preAnalysis?: any;
@@ -17,7 +17,7 @@ type GetCharonSessionOutput = {
 export async function getCharonSession(
   token: any,
   cpf: string
-): Promise<GetCharonSessionOutput> {
+): Promise<SetupItauCookies> {
   logger("-> Getting itau charon");
 
   const cached = await redis.get(CHARON_SESSION);
@@ -80,8 +80,7 @@ export async function getCharonSession(
     .data;
   const preAnalysis = (await collector.getOrWait(preAnalysisUrl, 30000)).data;
 
-  // Anexa o que encontramos na rede
-  const fullOutput: GetCharonSessionOutput = {
+  const fullOutput = {
     charon: charon || "",
     preAnalysisUrl: preAnalysisUrl,
     getVehicleYearsUrl: getVehicleYearsUrl,
@@ -91,7 +90,6 @@ export async function getCharonSession(
 
   await redis.set(CHARON_SESSION, JSON.stringify(fullOutput));
 
-  // Se quiser encerrar o browser aqui:
   await browser.close();
 
   return { ...fullOutput, preAnalysis };

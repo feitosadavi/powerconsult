@@ -9,7 +9,11 @@ import {
 export type ServiceName =
   | "isAvailableForFinancing"
   | "getSimulation"
-  | "getVehicleOptions";
+  | "getVehicleOptions"
+  | "config";
+
+export type BankCreds = { username: string; password: string };
+export type StoreBankCreds = { [K in AvailableBanks]?: BankCreds };
 
 type Banks = {
   [key in AvailableBanks]: {
@@ -28,6 +32,8 @@ export const BANKS: Banks = {
       isAvailableForFinancing: (input: any) =>
         Promise.resolve({ bancopan: {} }),
       getVehicleOptions: getBancopanVehicleOptions,
+      config: (creds: BankCreds) =>
+        Promise.resolve({ bancopan: {} }),
     },
     creds: {
       username: "66956463172",
@@ -39,6 +45,8 @@ export const BANKS: Banks = {
       getVehicleOptions: getItauVehicleOptions,
       getSimulation: getItauSimulation,
       isAvailableForFinancing: isItauAvailableForFinancig,
+      config: (creds: BankCreds) =>
+        Promise.resolve({ itau: {} }),
     },
     creds: {
       username: "powerfulveiculosdf@gmail.com",
@@ -50,6 +58,8 @@ export const BANKS: Banks = {
       getVehicleOptions: () => Promise.resolve({ bradesco: null }),
       getSimulation: (input: any) => Promise.resolve({ bancopan: {} }),
       isAvailableForFinancing: (input: any) => Promise.resolve({ itau: {} }),
+      config: (creds: BankCreds) =>
+        Promise.resolve({ bancopan: {} }),
     },
     creds: {
       username: "V1053.49893",

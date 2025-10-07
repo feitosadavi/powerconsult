@@ -122,7 +122,7 @@ export async function getVehicleOptionsController({
   browserContext: BrowserContext;
   taskTimeoutMs?: number;
 }) {
-  logger(`-> Getting getSimulationsController`, user);
+  logger(`-> Getting getVehicleOptionsController`, user);
 
   const bankCreds = await getBankCredsForStore(user.storeId);
 
@@ -142,6 +142,7 @@ export async function getVehicleOptionsController({
     (item): item is PromiseFulfilledResult<{ [bank: string]: string[] }> =>
       item.status === "fulfilled"
   );
+  console.log({ fulfilledRes });
 
   if (!fulfilledRes.length) return results;
 
@@ -163,6 +164,7 @@ export async function getVehicleOptionsController({
   const finalResult = Object.entries(vehicleMap).map(
     ([vehicle, banks]) => `${vehicle} {${Array.from(banks).sort().join(", ")}}`
   );
+  console.log({ finalResult });
 
   return finalResult;
 }

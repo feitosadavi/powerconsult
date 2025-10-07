@@ -4,7 +4,6 @@ import { logger } from "../../lib";
 
 export default async function isItauAvailableForFinancing({
   cpf,
-  bankCreds,
   page,
 }: SimulationInput): Promise<SimulationOutput> {
   await page.goto("https://www.credlineitau.com.br/new-simulator", {
