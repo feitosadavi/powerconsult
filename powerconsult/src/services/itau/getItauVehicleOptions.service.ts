@@ -1,5 +1,5 @@
 import { Page } from "playwright";
-import { redis } from "../../config/redis";
+import { redis } from "../../infra/redis";
 import { CHARON_SESSION, ITAU_TOKEN } from "../../constants";
 import {
   launchFromSnapshot,
@@ -41,12 +41,12 @@ export default async function getItauVehicleOptions({
   return { itau: [`Fiat Uno`, `Fiat Toro`] };
 }
 
-type State = 'usado' | '0km';
+type State = "usado" | "0km";
 
 const STATE_OPTIONS: Record<State, string> = {
-  'usado': "ids-radio-button-1",
-  '0km': "ids-radio-button-2"
-}
+  usado: "ids-radio-button-1",
+  "0km": "ids-radio-button-2",
+};
 
 export namespace GetItauVehiclesService {
   export type Input = {

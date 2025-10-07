@@ -2,7 +2,7 @@ import express, { json } from "express";
 import { getSimulationsController } from "./controllers";
 import { availableBanksList } from "./domain";
 import { logger } from "./lib";
-import { redis } from "./config/redis";
+import { redis } from "./infra/redis";
 
 const app = express();
 app.use(json());

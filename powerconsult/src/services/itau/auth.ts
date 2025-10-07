@@ -4,7 +4,7 @@ import { CookieJar } from "tough-cookie";
 import fetch, { RequestInit, Response } from "node-fetch";
 import { BankCreds, BANKS } from "../../banks";
 import { logger } from "../../lib";
-import { redis } from "../../config/redis";
+import { redis } from "../../infra/redis";
 import { ITAU_TOKEN } from "../../constants";
 
 // ---------- CONFIGURAÇÕES ----------
@@ -207,8 +207,6 @@ export async function getAccessToken(
   // 5) Cache with TTL
   const ttlSeconds = Math.max(30, Math.floor(expiresIn * 0.9)); // 90% slack
   await redis.set(ITAU_TOKEN, JSON.stringify(output), "EX", ttlSeconds);
-
-  
 
   return output;
 }

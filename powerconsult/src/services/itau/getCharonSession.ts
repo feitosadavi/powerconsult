@@ -1,6 +1,6 @@
 import { firefox } from "playwright";
 import { logger } from "../../lib";
-import { redis } from "../../config/redis";
+import { redis } from "../../infra/redis";
 import { CHARON_SESSION } from "../../constants";
 
 type Item = { manufacture: number; model: number; label: string };
