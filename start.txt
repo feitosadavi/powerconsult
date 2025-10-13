@@ -1,0 +1,10 @@
+https://cuddly-sniffle-7x9pw9pq4w63wxxw-5000.app.github.dev?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJpZDAxIiwic3RvcmVJZCI6InN0b3JlLTAwMSIsImlhdCI6MTc1ODY0MDM4NCwiZXhwIjoxNzU4NjY5MTg0fQ.t9FknW9kR7Es0dcHTfnfcINUOZ6uYr9u9_tWr1tkk0o
+{
+  "op": "getVehicleOptions",
+  "reqId": "1697057920614",
+  "args": {
+    "year": "2025",
+    "condicao": 'usado',
+    "vehicle": "Fiat Uno"
+  }
+}

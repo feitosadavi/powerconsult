@@ -1,9 +1,8 @@
 import { BrowserContext, Page } from "playwright";
 import { BANKS, ServiceName } from "../banks";
-import { logger } from "../lib";
-import { getBankCredsForStore, getCacheAuthToken } from "../playground";
+import { getBankCredsForStore, getCacheAuthToken, logger } from "../lib";
 import { AvailableBanks } from "../domain";
-import { getAccessToken } from "../services/itau/auth";
+import { getAccessToken } from "../services/itau/getAccessToken";
 
 type BankServiceFn = (args: {
   page: Page;
@@ -118,7 +117,7 @@ export async function getVehicleOptionsController({
 }: {
   user: { userId: string; storeId: string };
   bancos: AvailableBanks[];
-  service: { name: ServiceName; input: any }; // "isAvailableForFinancing"
+  service: { name: ServiceName; input: any }; // "isAvailableForFpinancing"
   browserContext: BrowserContext;
   taskTimeoutMs?: number;
 }) {

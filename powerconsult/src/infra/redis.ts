@@ -1,7 +1,10 @@
 import Redis from "ioredis";
+// import { env } from "./env";
 
-const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+export const redis = new Redis(process.env.REDIS_URL || "", {
+  lazyConnect: true,
+  maxRetriesPerRequest: 3,
+});
 
-export const redis = new Redis(REDIS_URL);
-
-export default redis;
+redis.on("error", (e) => console.error("[redis:error]", e));
+redis.on("connect", () => console.log("[redis] connected"));

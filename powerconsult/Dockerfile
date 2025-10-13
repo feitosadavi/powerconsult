@@ -31,7 +31,7 @@
     EXPOSE 5000
     
     # Start virtual display and your dev script
-    CMD ["bash", "-lc", "Xvfb :99 -screen 0 1280x720x24 & pnpm run dev"]
+    CMD ["bash", "-lc", "pnpm run dev:ws"]
   
   # ---------- Build (TS -> JS) ----------
   FROM base AS build
@@ -57,5 +57,5 @@
   COPY --from=build /app/dist ./dist
   
   EXPOSE 5000
-  CMD ["node", "dist/main.js"]
+  CMD ["node", "dist/ws/server.js"]
   

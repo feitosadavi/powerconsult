@@ -79,12 +79,13 @@ export type GetAccessTokenOutput = {
 
 // ---------- FLUXO ----------
 export async function getAccessToken(
-  bankCreds: BankCreds
+  bankCreds: BankCreds,
+  storeId: string
 ): Promise<GetAccessTokenOutput> {
   logger("-> Getting itau accessToken");
 
   // 0) Cache first
-  const cached = await redis.get(ITAU_TOKEN);
+  const cached = await redis.get(`${ITAU_TOKEN}`);
   if (cached) {
     logger("-> itau has cache token");
     return JSON.parse(cached) as GetAccessTokenOutput;
@@ -206,7 +207,12 @@ export async function getAccessToken(
 
   // 5) Cache with TTL
   const ttlSeconds = Math.max(30, Math.floor(expiresIn * 0.9)); // 90% slack
-  await redis.set(ITAU_TOKEN, JSON.stringify(output), "EX", ttlSeconds);
+  await redis.set(
+    `${ITAU_TOKEN}:${storeId}`,
+    JSON.stringify(output),
+    "EX",
+    ttlSeconds
+  );
 
   return output;
 }

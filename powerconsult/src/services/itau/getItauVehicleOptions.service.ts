@@ -1,6 +1,6 @@
 import { Page } from "playwright";
 import { redis } from "../../infra/redis";
-import { CHARON_SESSION, ITAU_TOKEN } from "../../constants";
+import { ITAU_TOKEN } from "../../constants";
 import {
   launchFromSnapshot,
   logger,
@@ -9,9 +9,7 @@ import {
   saveSnapshotArtifacts,
   snapshotSite,
 } from "../../lib";
-import { getAccessToken } from "./auth";
-import { getHeaders } from "./config";
-import { getCharonSession } from "./getCharonSession";
+import { getAccessToken } from "./getAccessToken";
 import { log } from "node:console";
 import getItauSimulation from "./getItauSimulations";
 import isItauAvailableForFinancing from "./isItauAvailableForFinancig";

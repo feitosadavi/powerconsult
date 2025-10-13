@@ -1,568 +1,155 @@
-// src/server.ts
+import { firefox } from "playwright";
+import { customFetch, logger } from "./lib";
+import { getEndpointFromCache, getJson, setJson } from "./infra/cacheHelpers";
 import {
-  chromium,
-  type Browser,
-  type BrowserContext,
-  type Page,
-} from "playwright";
-import { WebSocketServer, WebSocket, RawData } from "ws";
-import { randomUUID } from "crypto";
-import jwt from "jsonwebtoken";
-import Redis from "ioredis";
+  ITAU_HEADERS,
+  ITAU_ENDPOINTS,
+  REDIS_TTL,
+  ITAU_TOKEN,
+} from "./constants";
+import { log } from "node:console";
+import { getAccessToken } from "./services/itau/getAccessToken";
+import { BANKS } from "./banks";
+import { decodeCharonParams, encodeCharonParams } from "./lib/charon";
 
-// -----------------------------
-// Configs
-// -----------------------------
-const PORT = parseInt(process.env.PORT || "5000", 10);
-const MAX_CLIENTS = parseInt(process.env.MAX_CLIENTS || "200", 10);
-const HEADLESS = true;
-const CLIENT_IDLE_MS = parseInt(
-  process.env.CLIENT_IDLE_MS || `${5 * 60_000}`,
-  10
-);
-const PING_INTERVAL_MS = parseInt(process.env.PING_INTERVAL_MS || "20000", 10);
-const NAV_TIMEOUT_MS = parseInt(process.env.NAV_TIMEOUT_MS || "45000", 10);
-const CHROME_ARGS: string[] = []; // ex.: ['--no-sandbox','--disable-dev-shm-usage']
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-please-change";
-const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-
-// -----------------------------
-// Redis
-// -----------------------------
-const redis = new Redis(REDIS_URL);
-
-// -----------------------------
-// Mock DB de credenciais por loja
-// Estrutura persistida no Redis: key = bankCreds:<storeId>, value = JSON.stringify({ banco: {username,password}, ... })
-// -----------------------------
-
-const MOCK_CREDENTIALS_DB: Array<{ storeId: string; banks: StoreBankCreds }> = [
-  {
-    storeId: "store-001",
-    banks: {
-      itau: {
-        username: "powerfulveiculosdf@gmail.com",
-        password: "Mario2025#",
-      },
-      bradesco: {
-        username: "user_bradesco_store001",
-        password: "pass#Bradesco001",
-      },
-      bancopan: { username: "user_pan_store001", password: "pass#Pan001" },
-    },
-  },
-  {
-    storeId: "store-002",
-    banks: {
-      itau: { username: "user_itau_store002", password: "pass#Itau002" },
-      bradesco: {
-        username: "user_bradesco_store002",
-        password: "pass#Bradesco002",
-      },
-    },
-  },
-];
-
-// Bootstrap: carregar mock DB e gravar em Redis
-async function bootstrapBankCredsToRedis() {
-  for (const row of MOCK_CREDENTIALS_DB) {
-    const key = `bankCreds:${row.storeId}`;
-    await redis.set(key, JSON.stringify(row.banks));
+function sanitizeHeaders(input: Record<string, any>) {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input || {})) {
+    if (v === undefined || v === null) continue;
+    // convert to string, remove control chars/newlines and trim
+    let s = String(v)
+      .replace(/[\r\n\t\0]+/g, " ")
+      .trim();
+    // strip any ASCII control chars
+    s = s.replace(/\x00-\x1F/g, "");
+    out[k] = s;
   }
-  console.log(
-    `[bootstrap] Bank creds loaded into Redis for ${MOCK_CREDENTIALS_DB.length} stores.`
-  );
+  return out;
 }
 
-// Helper: obter credenciais de uma loja
-export async function getBankCredsForStore(
-  storeId: string
-): Promise<StoreBankCreds | null> {
-  logger(`-> getBankCredsForStore ${storeId}`);
-  const key = `bankCreds:${storeId}`;
-  const raw = await redis.get(key);
-  return raw ? (JSON.parse(raw) as StoreBankCreds) : null;
-}
+export const configureItau = async () => {
+  logger("-> Configuring Itau");
 
-export async function getCacheAuthToken(
-  banco: AvailableBanks,
-  storeId: string
-): Promise<string> {
-  logger(`-> getCacheAuthToken ${storeId}`);
-  const key = `${banco}-token:${storeId}`;
-  const raw = await redis.get(key);
-  if (!raw) throw new Error(`Token ${key} not found!`);
-  return raw;
-}
+  let headers = await getJson<Record<string, string>>(ITAU_HEADERS);
+  if (!headers) headers = await setHeaders();
 
-// -----------------------------
-// Tipos do protocolo / auth
-// -----------------------------
-type JwtPayload = {
-  userId: string;
-  storeId: string;
-  iat?: number;
-  exp?: number;
+  await setUrls(headers);
+
+  search(headers);
 };
 
-type OpName = "isAvailableForFinancing" | "getVehicleOptions" | "close";
+async function setHeaders() {
+  logger("-> getting headers");
 
-type ClientMsg = { op: OpName; reqId?: string; args?: Record<string, unknown> };
+  const browser = await firefox.launch({ headless: true });
+  const context = await browser.newContext();
 
-type ServerReply =
-  | { event: "ready"; payload: { clientId: string } }
-  | { event: "reply"; payload: { reqId?: string; ok: true; payload: unknown } }
-  | { event: "reply"; payload: { reqId?: string; ok: false; payload: unknown } }
-  | {
-      event: "error";
-      payload: { message: string; error?: string; load?: string };
-    };
+  const page = await context.newPage();
 
-// -----------------------------
-// Fila assíncrona por cliente
-// -----------------------------
-class AsyncQueue {
-  private chain: Promise<void> = Promise.resolve();
-  push<T>(task: () => Promise<T>): Promise<T> {
-    const run: Promise<T> = this.chain.then(() => task());
-    this.chain = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
-  }
-}
+  const ITAU_CHARON_URL = "https://apicd.cloud.itau.com.br/charon/ylejy22p";
+  const headersCollector: Record<string, string> = {};
 
-// -----------------------------
-// Controllers (placeholder)
-// -----------------------------
-import { getSimulationsController } from "./controllers"; // você já tem
-import { AvailableBanks, LocalStorageToken } from "./domain";
-import { getAccessToken, GetAccessTokenOutput } from "./services/itau/auth";
-import { BANCOPAN_TOKEN, ITAU_TOKEN } from "./constants";
-import { logger } from "./lib";
-import { getVehicleOptionsController } from "./controllers/getVehiclesOptions.controller";
-import { BANKS, StoreBankCreds } from "./banks";
-
-// -----------------------------
-// Sessão por cliente
-// -----------------------------
-export type UserSession = { userId: string; storeId: string };
-
-class ClientSession {
-  public readonly id: string;
-  public readonly ws: WebSocket;
-  private browser: Browser;
-  public context!: BrowserContext;
-  public page!: Page;
-
-  private queue = new AsyncQueue();
-  private lastSeen = Date.now();
-  private idleTimer: NodeJS.Timeout | null = null;
-  private closed = false;
-
-  public user!: UserSession; // definido após autenticar
-
-  constructor(id: string, ws: WebSocket, browser: Browser, user: UserSession) {
-    this.id = id;
-    this.ws = ws;
-    this.browser = browser;
-    this.user = user;
-  }
-
-  log(msg: string, extra?: unknown) {
-    const base = `[${new Date().toISOString()}] [client:${this.id}] [user:${
-      this.user?.userId
-    }|store:${this.user?.storeId}] ${msg}`;
-    if (extra !== undefined) console.log(base, extra);
-    else console.log(base);
-  }
-
-  touch() {
-    this.lastSeen = Date.now();
-    this.armIdleTimer();
-  }
-
-  armIdleTimer() {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => {
-      if (Date.now() - this.lastSeen >= CLIENT_IDLE_MS) {
-        this.log(`idle timeout (${CLIENT_IDLE_MS}ms) → closing`);
-        this.close().catch(() => {});
-      } else {
-        this.armIdleTimer();
+  // Listen to request event to capture outgoing request headers matching the URL
+  const reqHandler = (req: import("playwright").Request) => {
+    try {
+      const url = req.url();
+      if (url === ITAU_CHARON_URL) {
+        const hdrs = req.headers();
+        Object.assign(headersCollector, hdrs);
       }
-    }, CLIENT_IDLE_MS + 500);
-  }
-
-  async configBanks(): Promise<LocalStorageToken[]> {
-    const creds = await getBankCredsForStore(this.user.storeId);
-
-    if (!creds) throw new Error("Creds not found");
-
-    const tokens: LocalStorageToken[] = [];
-
-    Object.keys(creds).forEach((bank) => {
-      logger(`-> setup bank creds for ${bank}`);
-      const token = BANKS[bank as AvailableBanks].services.config(
-        creds[bank as AvailableBanks]!
-      );
-      tokens.push(token);
-    });
-
-    // remove later
-    await redis.set(
-      `${BANCOPAN_TOKEN}:${this.user.storeId}`,
-      JSON.stringify({})
-    );
-
-    return tokens;
-  }
-
-  async init() {
-    this.context = await this.browser.newContext({
-      viewport: { width: 1366, height: 768 },
-    });
-    const tokens = await this.configBanks();
-
-    await this.context.addInitScript((tokens: LocalStorageToken[]) => {
-      tokens.forEach((token) => {
-        if (token.origins && !token.origins.includes(location.origin)) return;
-        window.sessionStorage.setItem(token.key, JSON.stringify(token.value));
-      });
-    }, tokens);
-    this.page = await this.context.newPage();
-    this.page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
-    this.armIdleTimer();
-    // await this.setupAuth();
-  }
-
-  send(msg: ServerReply) {
-    if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
-    }
-  }
-
-  private replyOk(reqId: string | undefined, payload: unknown) {
-    this.send({
-      event: "reply",
-      payload: { reqId, ok: true as const, payload },
-    });
-  }
-  private replyErr(reqId: string | undefined, payload: unknown) {
-    this.send({
-      event: "reply",
-      payload: { reqId, ok: false as const, payload },
-    });
-  }
-
-  // --------------- comandos ---------------
-  private async cmdIsAvailableForFinancing(args?: Record<string, unknown>) {
-    logger(`-> cmdIsAvailableForFinancing`, this.user);
-    const cpf = String(args?.cpf ?? "");
-    const bancos: AvailableBanks[] = (args?.bancos as AvailableBanks[]) || [];
-
-    return await getSimulationsController({
-      user: this.user,
-      bancos: bancos as AvailableBanks[],
-      browserContext: this.context,
-      service: {
-        name: "isAvailableForFinancing",
-        input: { cpf },
-      },
-    });
-  }
-
-  private async cmdGetVehicleOptions(args?: Record<string, unknown>) {
-    logger(`-> cmdGetVehicleOptions`, this.user);
-    const cpf = String(args?.cpf ?? "");
-    const bancos: AvailableBanks[] = (args?.bancos as AvailableBanks[]) || [];
-
-    return await getVehicleOptionsController({
-      user: this.user,
-      bancos: bancos as AvailableBanks[],
-      browserContext: this.context,
-      service: {
-        name: "getVehicleOptions",
-        input: { cpf },
-      },
-    });
-  }
-
-  async close() {
-    if (this.closed) return;
-    this.closed = true;
-    try {
-      await this.context?.close();
-    } catch {}
-    try {
-      this.ws?.close();
-    } catch {}
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-  }
-
-  // --------------- dispatcher ---------------
-  handleMessage(raw: RawData) {
-    this.touch();
-    let msg: ClientMsg;
-    try {
-      msg = JSON.parse(raw.toString());
     } catch {
-      return this.send({
-        event: "error",
-        payload: { message: "invalid_json" },
-      });
+      // ignore
     }
+  };
+  page.on("request", reqHandler);
 
-    const { op, args, reqId } = msg;
-
-    this.queue
-      .push(async () => {
-        try {
-          switch (op) {
-            case "isAvailableForFinancing":
-              return this.replyOk(
-                reqId,
-                await this.cmdIsAvailableForFinancing(args)
-              );
-            case "getVehicleOptions":
-              return this.replyOk(reqId, await this.cmdGetVehicleOptions(args));
-            case "close":
-              await this.close();
-              return this.replyOk(reqId, { closed: true });
-            default:
-              return this.replyErr(reqId, { error: "unknown_op", op });
-          }
-        } catch (e) {
-          this.log(`op ${op} failed`, e);
-          if (
-            String(e).includes(
-              "Target page, context or browser has been closed"
-            )
-          ) {
-            await this.init();
-            this.handleMessage(raw);
-            return;
-          }
-          return this.replyErr(reqId, { error: String(e) });
-        }
-      })
-      .catch(() => {});
-  }
+  await page.goto("https://www.credlineitau.com.br/new-simulator", {
+    waitUntil: "networkidle",
+  });
+  await page.waitForTimeout(5000);
+  // await setJson(ITAU_HEADERS, headersCollector, REDIS_TTL);
+  return headersCollector;
 }
 
-// -----------------------------
-// Browser compartilhado
-// -----------------------------
-let sharedBrowser: Browser | null = null;
-async function getBrowser(): Promise<Browser> {
-  if (sharedBrowser && sharedBrowser.isConnected()) return sharedBrowser;
-  sharedBrowser = await chromium.launch({
-    headless: HEADLESS,
-    args: CHROME_ARGS,
-  });
-  sharedBrowser.on("disconnected", () => {
-    console.warn("[browser] disconnected");
-    sharedBrowser = null;
+async function setUrls(headers: Record<string, string>): Promise<void> {
+  logger("-> getting URLs");
+  const target = "https://apicd.cloud.itau.com.br/charon/brr13ot8";
+  const headersForRequest = { ...headers };
+  delete headersForRequest["x-charon-session"];
+
+  const cleanedHeaders = sanitizeHeaders({
+    ...headersForRequest,
+    "x-charon-params":
+      "eyJ1cGRhdGVzIjpudWxsLCJjbG9uZUZyb20iOm51bGwsImVuY29kZXIiOnt9LCJtYXAiOm51bGx9",
+    "x-apigw-api-id": "v0vb31ek5l",
   });
 
-  return sharedBrowser;
+  const resp = await customFetch<any>(target, {
+    method: "GET",
+    headers: cleanedHeaders as Record<string, string>,
+    timeout: 10_000,
+  });
+
+  const links = Array.isArray(resp?.links) ? resp.links : [];
+
+  await setJson(ITAU_ENDPOINTS, links, REDIS_TTL);
+
+  // Return hrefs for convenience
+  return links.map((l: any) => l.href).filter(Boolean);
+  // } catch (e) {
+  //   log(e)
+  //   logger(`-> getUrls fetch failed: ${String(e)}`);
+  // }
 }
 
-// -----------------------------
-// Auth helpers (JWT)
-// -----------------------------
-function parseTokenFromRequest(req: any): string | null {
-  // 1) Query string ?token=...
-  try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const q = url.searchParams.get("token");
-    if (q) return q;
-  } catch {}
+async function search(headers: any): Promise<void> {
+  const { href, method } = await getEndpointFromCache("getVehicleSearch");
 
-  // 2) Subprotocol: Sec-WebSocket-Protocol: bearer,<JWT>
-  const proto = req.headers["sec-websocket-protocol"];
-  if (typeof proto === "string") {
-    const parts = proto.split(",").map((s) => s.trim());
-    const bearerIdx = parts.findIndex((p) => p.toLowerCase() === "bearer");
-    if (bearerIdx >= 0 && parts[bearerIdx + 1]) return parts[bearerIdx + 1];
-  }
+  const accessToken =
+    "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJKTDFtWXY4RW1ka3VRMHg2TmJWek1udWxDc2RCMFlGbzhISzhTdDBWZkhZIn0.eyJleHAiOjE3NTk5NTg4NjUsImlhdCI6MTc1OTk1NTI2NSwiYXV0aF90aW1lIjoxNzU5OTM1MzM2LCJqdGkiOiI2NmIyNjkwYy02ZWJiLTQ0ODUtYjFlNy1iN2FmZjIxNmViODQiLCJpc3MiOiJodHRwczovL2FjY291bnRzLXZlaGljbGUuaXRhdS5jb20uYnIvYXV0aC9yZWFsbXMvemZsb3ciLCJhdWQiOlsiZmluYW5jZUFwaSIsImFjY291bnQiXSwic3ViIjoiMDFjYmE4ZDYtODJlOS00ZTE3LThhMzctY2U5NzU5MjU2NDdmIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoiY3JlZGxpbmVpdGF1Iiwibm9uY2UiOiJUbVYwTGpGcWR6SkNaRVl6YVhsSmRXMWljREo1TTBFM01ucElVVEJvY1hSd1pETTJNV1JhUlVkYVNuUnUiLCJzZXNzaW9uX3N0YXRlIjoiMDA4MmU4NDUtNDkyMC00NGE2LTlhZDMtZDM2ZjFjNzkwYTFlIiwiYWxsb3dlZC1vcmlnaW5zIjpbImh0dHBzOi8vY3JlZGxpbmUtZnJvbnRlbmQtYmx1ZS1ob20uY2xvdWQuaXRhdS5jb20uYnIiLCJodHRwczovL2NyZWRsaW5lLWRlYWxlci56Zmxvdy5jb20uYnIiLCJodHRwczovL2NyZWRsaW5lLWh1YnBqLnpmbG93LmNvbS5iciIsImh0dHBzOi8vY2hhbm5lbHMuemZsb3cuY29tLmJyIiwiaHR0cHM6Ly9jcmVkbGluZS1pdGF1ZHIuemZsb3cuY29tLmJyIiwiaHR0cHM6Ly9jcmVkbGluZS1tYWluc3RyZWFtLnpmbG93LmNvbS5iciIsImh0dHBzOi8vc3RhdGljLnpmbG93LmNvbS5iciIsImh0dHBzOi8vY3JlZGxpbmUtZnJvbnRlbmQtYmx1ZS5jbG91ZC5pdGF1LmNvbS5iciIsImh0dHBzOi8vY3JlZGxpbmVpdGF1LWhvbS5jbG91ZC5pdGF1LmNvbS5ici8iLCJodHRwczovL2NyZWRsaW5lamxyLWRldi5jbG91ZC5pdGF1LmNvbS5iciIsImh0dHBzOi8vY3JlZGxpbmUtZW5hYmxlci56Zmxvdy5jb20uYnIiLCJodHRwczovL2NyZWRsaW5laXRhdS56Zmxvdy5jb20uYnIiLCJodHRwczovL2NyZWRsaW5lLWRldi56Zmxvdy5jb20uYnIiLCJodHRwczovL21pY3JvZnJvbnRlbmQuY2xvdWQuaXRhdS5jb20uYnIiLCJodHRwczovL2NyZWRsaW5lLXN0YWdpbmcuemZsb3cuY29tLmJyIiwiaHR0cDovL2ZpbmFuY2UtY2xpZW50ZS1wcm9qZWN0LXBob2VuaXgtY3JlZGxpbmUuc3ZjOS5wcm9kLmF3cy5jbG91ZC5paGYvIiwiaHR0cHM6Ly9jcmVkbGluZS1kZXZpdGF1LnpmbG93LmNvbS5iciIsImh0dHBzOi8vbWZlLXNpbXVsYXRpb24tY3JlZGxpbmUuY2xvdWQuaXRhdS5jb20uYnIiLCJodHRwczovL2NyZWRsaW5laXRhdS1ob20uY2xvdWQuaXRhdS5jb20uYnIvKiIsImh0dHBzOi8vY3JlZGxpbmVpdGF1LWhvbS5jbG91ZC5pdGF1LmNvbS5iciIsImh0dHBzOi8vdmVpY3Vsb3MtZGV2LmNsb3VkLml0YXUuY29tLmJyIiwiaHR0cHM6Ly9jcmVkbGluZS1pdGF1LWdyZWVuLmNsb3VkLml0YXUuY29tLmJyIiwiaHR0cHM6Ly9jcmVkbGluZS1lbXByZXNhcy56Zmxvdy5jb20uYnIiLCJodHRwczovL2NyZWRsaW5lamxyLWhvbS5jbG91ZC5pdGF1LmNvbS5iciIsImh0dHBzOi8vY3JlZGxpbmVpdGF1LWRldi5jbG91ZC5pdGF1LmNvbS5iciIsImh0dHBzOi8vY3JlZGxpbmUtaXRhdS1ibHVlLWdyZWVuLmNsb3VkLml0YXUuY29tLmJyIiwiaHR0cHM6Ly92ZWljdWxvcy1wcm9kLmNsb3VkLml0YXUuY29tLmJyIiwiaHR0cHM6Ly9jcmVkbGluZWl0YXUtcHJvZC5jbG91ZC5pdGF1LmNvbS5iciIsImh0dHBzOi8vYWNjb3VudHMtdmVoaWNsZS5pdGF1LmNvbS5ici8qIiwiaHR0cHM6Ly9jcmVkbGluZWl0YXUuY2xvdWQuaXRhdS5jb20uYnIiLCJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJodHRwczovL2NyZWRsaW5lamxyLXByb2QuY2xvdWQuaXRhdS5jb20uYnIiLCJodHRwOi8vMTAuMC4xMC4yMDk6MzAwMCIsImh0dHBzOi8vYmZmc2ltdWxhdGlvbmNyZWRsaW5lLmlzdGlvLmZvdW5kYXRpb24uYXdzLmNsb3VkLmloZiIsImh0dHBzOi8vdmVpY3Vsb3MtaG9tLmNsb3VkLml0YXUuY29tLmJyIiwiaHR0cHM6Ly9taWNyb2Zyb250ZW5kLmRldi5jbG91ZC5pdGF1LmNvbS5iciIsImh0dHBzOi8vY3JlZGxpbmVpdGF1LXByb2QuY2xvdWQuaXRhdS5jb20uYnIvKiIsImh0dHBzOi8vY3JlZGxpbmVqbHItaHVicGouemZsb3cuY29tLmJyLyIsImh0dHA6Ly9zdGFnaW5nOjMwMDAiLCJodHRwczovL2NyZWRsaW5lLWRlYWxlci56Zmxvdy5jb20uYnIvIiwiaHR0cHM6Ly9hY2NvdW50cy12ZWhpY2xlLml0YXUuY29tLmJyIiwiaHR0cHM6Ly9jcmVkbGluZS1ob21vbG9naXRhdS56Zmxvdy5jb20uYnIiLCJodHRwczovL2NyZWRsaW5lamxyLWhvbS5jbG91ZC5pdGF1LmNvbS5ici8qIiwiaHR0cHM6Ly9jcmVkbGluZS1kZXYyLnpmbG93LmNvbS5iciIsImh0dHBzOi8vd3d3LmNyZWRsaW5laXRhdS5jb20uYnIvKiIsImh0dHBzOi8vY3JlZGxpbmVpdGF1LmNvbS5iciIsImh0dHBzOi8vY3JlZGxpbmUtcGYuemZsb3cuY29tLmJyIiwiaHR0cHM6Ly93d3cuY3JlZGxpbmVpdGF1LmNvbS5iciJdLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsib2ZmbGluZV9hY2Nlc3MiLCJkZWZhdWx0LXJvbGVzLXpmbG93IiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJmaW5hbmNlQXBpIjp7InJvbGVzIjpbImNyZWRpdC1hbmFseXNpcyIsInVubG9jay1uZXctc2ltdWxhdG9yLWNyZWRsaW5lLXBmIiwiZmluYW5jZS1zaW11bGF0aW9uIiwiY3JlYXRlLXRyYW5zYWN0aW9uIiwidmlldy1tZmUtY3Jvc3Mtc2VsbC1wcm9kdWN0cyIsIm5ldy11eC1keW5hbWljLWhlYWRlciJdfSwiYWNjb3VudCI6eyJyb2xlcyI6WyJtYW5hZ2UtYWNjb3VudCIsIm1hbmFnZS1hY2NvdW50LWxpbmtzIiwidmlldy1wcm9maWxlIl19fSwic2NvcGUiOiJvcGVuaWQiLCJzaWQiOiIwMDgyZTg0NS00OTIwLTQ0YTYtOWFkMy1kMzZmMWM3OTBhMWUiLCJuYW1lIjoiTWFyaW8gSm9hcXVpbSBNZWxvIGRhIFNpbHZhIEp1bmlvciIsInByZWZlcnJlZF91c2VybmFtZSI6InBvd2VyZnVsdmVpY3Vsb3NkZkBnbWFpbC5jb20iLCJnaXZlbl9uYW1lIjoiTWFyaW8iLCJmYW1pbHlfbmFtZSI6IkpvYXF1aW0gTWVsbyBkYSBTaWx2YSBKdW5pb3IiLCJlbWFpbCI6InBvd2VyZnVsdmVpY3Vsb3NkZkBnbWFpbC5jb20ifQ.pb7tcHuzUaYehDN4yCa_6T-vNMhDXN12w25432jbECltX42Ii28egccT77-YUqV4coWkm761vtajZq2Sj50G-CjvgfKzvcw_t660kawFlbiDiA2PV_qJkpn-csWvJHs0FYVsiW0j3nJSgYjjeJWxV8lYxDlO8TMWNEj3fAlnFh91xz6oQAcIUFMdHTPz9GYQRzHGAEQQgvvQ5rqZy-ouY13daoKD4Bm-r_j2wDOb7sNvTm-iNjTaqgglwP5KtE13QLDEdjxg7EimAgmoS0uSc5wTBiBLDW7o9OurNdnVktMYebZYfm19ty7Mhoz-JQxxXgzHoaxN18lrFJbUykqKMA";
+  const accessToken2 = (await getAccessToken(BANKS.itau.creds)).token
+    .accessToken;
+  // os headers precisam ser atualizados
+  headers = {
+    ...headers,
+    Authorization: `Bearer ${accessToken2}`,
+    "x-apigw-api-id": "v0vb31ek5l",
+    "x-charon-params": encodeCharonParams({
+      year: 2026,
+      zeroKm: false,
+      model: "volks",
+      segment: 45494125000153,
+      externalReference: true,
+    }),
+    // "x-charon-session": "767c766d-0244-4aca-965e-b92c0c80092d",
+    // "x-itau-apikey": "bd0fb09f0179b8d899bd7be7404158bd0713462fc9bc1a88723de71e896de0e0501528201882cd5e7dc1fd9115725833",
+    // "x-itau-correlationid": "a4d0347d-0f9f-4710-8fce-0588e29f1db3",
+    // "x-itau-flowid": "e026e577-a49e-491f-855c-c5678e6fc92d"
+  };
+  console.log({ headers, href });
+  const href2 =
+    "https://apicd.cloud.itau.com.br/charon/brr13ot8/df0456769b271f88";
+  const resp = await customFetch<any>(
+    `${href}?year=2026&zeroKm=false&model=volks&segment=45494125000153&externalReference=true`,
+    {
+      method,
+      headers,
+      timeout: 10_000,
+    }
+  );
 
-  // 3) Authorization header (não padrão no upgrade, mas deixamos)
-  const auth = req.headers["authorization"] || req.headers["Authorization"];
-  if (typeof auth === "string" && auth.toLowerCase().startsWith("bearer ")) {
-    return auth.slice(7);
-  }
+  console.log(resp);
 
-  return null;
+  const links = Array.isArray(resp?.links) ? resp.links : [];
+
+  await setJson(ITAU_ENDPOINTS, links, REDIS_TTL);
+
+  // Return hrefs for convenience
+  return links.map((l: any) => l.href).filter(Boolean);
+  // } catch (e) {
+  //   log(e)
+  //   logger(`-> getUrls fetch failed: ${String(e)}`);
+  // }
 }
 
-function verifyJwt(token: string): UserSession {
-  try {
-    console.log({ JWT_SECRET });
-
-    const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
-    if (!payload.userId || !payload.storeId) throw new Error("invalid payload");
-    return { userId: payload.userId, storeId: payload.storeId };
-  } catch (e) {
-    console.log(e);
-    throw new Error("invalid_token");
-  }
-}
-
-// -----------------------------
-// Gerenciador global + WS ping
-// -----------------------------
-const clients = new Map<string, ClientSession>();
-const wsMeta = new WeakMap<WebSocket, { isAlive: boolean; clientId: string }>();
-
-function currentLoad() {
-  return `${clients.size}/${MAX_CLIENTS}`;
-}
-
-// Iniciar servidor após bootstrap
-(async function start() {
-  await bootstrapBankCredsToRedis();
-
-  const wss = new WebSocketServer({ port: PORT });
-  console.log(`[server] listening on ws://0.0.0.0:${PORT}`);
-
-  wss.on("connection", async (ws, req) => {
-    console.log(
-      `[server] new ws connection from ${req.socket.remoteAddress ?? "unknown"}`
-    );
-
-    // Autenticação obrigatória
-    const token = parseTokenFromRequest(req);
-    if (!token) {
-      ws.send(
-        JSON.stringify({
-          event: "error",
-          payload: { message: "missing_token" },
-        } satisfies ServerReply)
-      );
-      ws.close();
-      return;
-    }
-
-    let user: UserSession;
-    try {
-      user = verifyJwt(token);
-    } catch (e) {
-      console.log(e);
-
-      ws.send(
-        JSON.stringify({
-          event: "error",
-          payload: { message: "invalid_token" },
-        } satisfies ServerReply)
-      );
-      ws.close();
-      return;
-    }
-
-    if (clients.size >= MAX_CLIENTS) {
-      const msg: ServerReply = {
-        event: "error",
-        payload: { message: "server_busy", load: currentLoad() },
-      };
-      ws.send(JSON.stringify(msg));
-      ws.close();
-      return;
-    }
-
-    const clientId = randomUUID();
-    wsMeta.set(ws, { isAlive: true, clientId });
-
-    let session: ClientSession | null = null;
-
-    try {
-      const browser = await getBrowser();
-      session = new ClientSession(clientId, ws, browser, user);
-      clients.set(clientId, session);
-
-      session.log(
-        `connected from ${
-          req.socket.remoteAddress ?? "unknown"
-        } load=${currentLoad()}`
-      );
-
-      ws.on("pong", () => {
-        const meta = wsMeta.get(ws);
-        if (meta) meta.isAlive = true;
-        session?.touch();
-      });
-
-      await session.init();
-      session.send({ event: "ready", payload: { clientId } });
-
-      ws.on("message", (raw) => session?.handleMessage(raw));
-
-      ws.on("close", async () => {
-        session?.log("ws closed → tearing down");
-        await session?.close().catch(() => {});
-        if (session) clients.delete(session.id);
-      });
-
-      ws.on("error", async (err) => {
-        session?.log("ws error", err);
-        await session?.close().catch(() => {});
-        if (session) clients.delete(session.id);
-      });
-    } catch (err) {
-      console.error("[server] failed to create session", err);
-      const msg: ServerReply = {
-        event: "error",
-        payload: { message: "init_failed", error: String(err) },
-      };
-      try {
-        ws.send(JSON.stringify(msg));
-      } catch {}
-      try {
-        ws.close();
-      } catch {}
-      if (session) clients.delete(session.id);
-    }
-  });
-
-  // ping loop para derrubar zombies
-  const pingInterval = setInterval(() => {
-    wss.clients.forEach((ws) => {
-      const meta = wsMeta.get(ws);
-      if (!meta) return;
-      if (!meta.isAlive) {
-        ws.terminate();
-        return;
-      }
-      meta.isAlive = false;
-      try {
-        ws.ping();
-      } catch {}
-    });
-  }, PING_INTERVAL_MS);
-
-  wss.on("close", () => clearInterval(pingInterval));
-
-  // graceful shutdown
-  async function shutdown() {
-    console.log("[server] shutting down…");
-    for (const [, sess] of clients) {
-      await sess.close().catch(() => {});
-    }
-    try {
-      await sharedBrowser?.close();
-    } catch {}
-    try {
-      await redis.quit();
-    } catch {}
-    process.exit(0);
-  }
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-  process.on("unhandledRejection", (reason) => {
-    console.error("[unhandledRejection]", reason);
-  });
-  process.on("uncaughtException", (err) => {
-    console.error("[uncaughtException]", err);
-  });
-})();
+configureItau();

@@ -121,7 +121,8 @@ class ClientSession {
     Object.keys(creds).forEach((bank) => {
       logger(`-> setup bank creds for ${bank}`);
       const token = BANKS[bank as AvailableBanks].services.config(
-        creds[bank as AvailableBanks]!
+        creds[bank as AvailableBanks]!,
+        this.user.storeId
       );
       tokens.push(token);
     });
@@ -456,5 +457,4 @@ export async function startWebSocketServer(port = PORT) {
     console.error("[uncaughtException]", err);
   });
 }
-
-export default startWebSocketServer;
+startWebSocketServer();

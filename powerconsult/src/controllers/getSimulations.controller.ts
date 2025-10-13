@@ -1,9 +1,8 @@
 import { BrowserContext, Page } from "playwright";
 import { BANKS, ServiceName } from "../banks";
-import { logger } from "../lib";
-import { getBankCredsForStore, getCacheAuthToken } from "../playground";
+import { getBankCredsForStore, getCacheAuthToken, logger } from "../lib";
 import { AvailableBanks } from "../domain";
-import { getAccessToken } from "../services/itau/auth";
+import { ITAU_TOKEN } from "../constants";
 
 type BankServiceFn = (args: {
   page: Page;
@@ -19,22 +18,13 @@ type BanksMap = {
   };
 };
 
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, rej) =>
-      setTimeout(() => rej(new Error(`Timeout: ${label} (${ms}ms)`)), ms)
-    ),
-  ]) as Promise<T>;
-}
-
 type Service = {
   name: ServiceName;
   input: any;
 };
 
 const SESSION_STORAGE_KEYS: Record<AvailableBanks, string> = {
-  itau: "token",
+  itau: ITAU_TOKEN,
   bancopan: "token",
   bradesco: "token",
 };
@@ -55,6 +45,8 @@ async function runBankTask(
     taskTimeoutMs?: number;
   }
 ) {
+  console.log({ name: service.name });
+
   if (!BANKS[banco] || !BANKS[banco].services?.[service.name]) {
     return {
       [banco]: {
@@ -135,7 +127,8 @@ export async function getSimulationsController({
       })
     )
   );
-
+  results.forEach(r => console.log(r))
+  
   // Normaliza resultados (fulfilled/rejected) em um único objeto
   const merged = Object.assign(
     {},

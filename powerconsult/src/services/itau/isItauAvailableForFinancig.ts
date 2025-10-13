@@ -6,9 +6,16 @@ export default async function isItauAvailableForFinancing({
   cpf,
   page,
 }: SimulationInput): Promise<SimulationOutput> {
+  logger(`-> isItauAvailableForFinancing for ${cpf}`);
+
   await page.goto("https://www.credlineitau.com.br/new-simulator", {
     waitUntil: "domcontentloaded",
   });
+console.time("timeout");
+await page.waitForTimeout(6000);
+console.timeEnd("timeout");
+  console.log(await page.content());
+
   const payloads: any[] = [];
   page.on("response", async (res) => {
     try {

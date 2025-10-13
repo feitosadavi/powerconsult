@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon --exec ts-node src/main.ts",
+    "dev:api": "nodemon --exec ts-node src/main.ts",
+    "dev:ws": "nodemon --exec ts-node src/ws/server.ts",
+    "dev": "pnpm run dev:api & pnpm run dev:ws",
+    "start": "ts-node src/main.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "playground": "nodemon --exec ts-node src/playground.ts"
   },

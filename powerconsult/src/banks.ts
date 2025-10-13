@@ -5,6 +5,7 @@ import {
   getBancopanVehicleOptions,
   getItauVehicleOptions,
 } from "./services";
+import { configureItau } from "./services/itau/configureItau";
 
 export type ServiceName =
   | "isAvailableForFinancing"
@@ -45,8 +46,7 @@ export const BANKS: Banks = {
       getVehicleOptions: getItauVehicleOptions,
       getSimulation: getItauSimulation,
       isAvailableForFinancing: isItauAvailableForFinancig,
-      config: (creds: BankCreds) =>
-        Promise.resolve({ itau: {} }),
+      config: (creds: BankCreds, storeId: string) => configureItau(creds, storeId),
     },
     creds: {
       username: "powerfulveiculosdf@gmail.com",
